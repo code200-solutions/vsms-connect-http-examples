@@ -2,7 +2,7 @@
 
 Zero-dependency **integration examples** and an **E2E test suite** for the VSMS Connect **generic HTTP connector** — the `/api/v1/businesses/:businessId/fiscalise` surface an external POS integrator talks to: `ApiKey` auth, normalized invoice ingestion, status polling, proforma trigger, refunds, copies, and cancellations.
 
-The full wire contract and design live in [docs/SPEC.md](docs/SPEC.md).
+The full wire contract and design live in [docs/SPEC.md](docs/SPEC.md). A printable **HTTP Connector API reference** is available as [docs/http-connector-api.pdf](docs/http-connector-api.pdf).
 
 ## Quick start (integrators)
 
