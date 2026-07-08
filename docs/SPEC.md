@@ -103,7 +103,7 @@ Node ≥ 20.6 (`--env-file`, native `fetch`, `node:test`). Plain JavaScript — 
 - `VSMS_CONNECT_BACKEND_URL` — up to and including `/api/v1`.
 - `VSMS_CONNECT_BUSINESS_ID` — business UUID.
 - `VSMS_CONNECT_API_KEY` — the `http`-scoped key.
-- `VSMS_CONNECT_LOCATION_ID` — optional; a Location UUID belonging to the business. When set, the suite's "sale to a specific location" test runs (else it's skipped); `examples/sale-to-location.mjs` reads it too.
+- `VSMS_CONNECT_LOCATION_ID` — optional; a Location UUID belonging to the business. When set, the suite's "sale to a specific location" test runs (else it's skipped); `examples/17-sale-to-location.mjs` reads it too.
 - `VSMS_CONNECT_HTTP_TIMEOUT_MS` — optional, tests only; client-side fetch timeout (default 60000). Independent of the server's sync-wait window — slow stacks (tunnelled backends, remote DBs) can take far longer to ingest than the sync window suggests, so the client budget must never be derived from `sync_timeout_ms`. Examples hardcode a 60 s `AbortSignal.timeout`.
 
 Missing values fail fast with a one-line hint.
@@ -118,7 +118,7 @@ examples/
   14-training-refund.mjs
   15-cancel.mjs            # extra, argv: <fiscalNumber> — counter-document cancellation
   16-sale-mixed.mjs        # extra: multi-line, VAT15 + VAT0, split cash/card tender
-  sale-to-location.mjs     # extra: sale signed by a specific location's cert (needs VSMS_CONNECT_LOCATION_ID)
+  17-sale-to-location.mjs     # extra: sale signed by a specific location's cert (needs VSMS_CONNECT_LOCATION_ID)
   status-poll.mjs          # extra, argv: <invoiceId> — poll until all payment results terminal
   README.md                # quick start + case index
 tests/
@@ -159,6 +159,6 @@ The client never registers businesses — like a real integrator it is _handed_ 
 1. `node --env-file=.env examples/01-normal-sale.mjs` (or `yarn case 1`) → 200 with the fiscal number, verification URL, and receipt journal; corrupted key → 401 rendered cleanly; wrong-scope key → 403 `USER_FORBIDDEN`.
 2. `yarn case 03-normal-refund` → 200; the script makes its own sale inline, then refunds it (reusing the sale's invoice number). The numbered refund/copy/proforma scripts are all self-standing — no argv needed.
 3. `yarn case 09` (copy sale), `yarn case 15` (cancel — makes + cancels its own sale), `yarn case 11` (proforma → trigger → fiscalised) → each completes with its own fiscal number.
-4. `node --env-file=.env examples/sale-to-location.mjs` (needs `VSMS_CONNECT_LOCATION_ID`) → 200 signed by that location's cert.
+4. `node --env-file=.env examples/17-sale-to-location.mjs` (needs `VSMS_CONNECT_LOCATION_ID`) → 200 signed by that location's cert.
 5. `yarn test` → full suite green (sales incl. GTIN/VAT0/split-tender/training, refund, copies, proforma lifecycle, cancel, location, negatives incl. `LOCATION_NOT_FOUND`, idempotency replay with the `Idempotency-Replayed: true` header); non-zero exit when any step fails.
 6. `yarn format` leaves no diff.

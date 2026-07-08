@@ -29,7 +29,7 @@ node --env-file=.env examples/14-training-refund.mjs
 
 # Extras
 node --env-file=.env examples/16-sale-mixed.mjs              # multi-line, VAT15 + VAT0, split cash/card tender
-node --env-file=.env examples/sale-to-location.mjs           # sale signed by a specific location's cert (needs VSMS_CONNECT_LOCATION_ID)
+node --env-file=.env examples/17-sale-to-location.mjs           # sale signed by a specific location's cert (needs VSMS_CONNECT_LOCATION_ID)
 node --env-file=.env examples/15-cancel.mjs <fiscalInvoiceNumber>
 node --env-file=.env examples/status-poll.mjs <invoiceId>    # poll a 202 (queued) invoice to terminal
 ```

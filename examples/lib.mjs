@@ -38,15 +38,11 @@ async function call(method, url, body) {
   return { status: res.status, envelope, payload };
 }
 
-// sync_timeout_ms = how long the server holds the request waiting for the
-// fiscal result (default 10000, cap 30000). 200 = fiscalised in-window;
-// 202 = queued (poll the invoice); 201 = PROFORMA accepted (trigger it).
-export const fiscalise = (body) =>
-  call("POST", `${FISCALISE}?sync_timeout_ms=25000`, body);
+export const fiscalise = (body) => call("POST", FISCALISE, body);
 export const trigger = (invoiceId) =>
-  call("POST", `${FISCALISE}/${invoiceId}/trigger?sync_timeout_ms=25000`);
+  call("POST", `${FISCALISE}/${invoiceId}/trigger`);
 export const cancelDoc = (fiscalInvoiceNumber) =>
-  call("POST", `${FISCALISE}/cancel?sync_timeout_ms=25000`, {
+  call("POST", `${FISCALISE}/cancel`, {
     fiscalInvoiceNumber,
   });
 export const getStatus = (invoiceId) =>
@@ -134,12 +130,17 @@ export function printReceipt(payload, label) {
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
-/** A reconciled line item. taxCode "VAT15" (15%) or "VAT0" (zero-rated). */
+/**
+ * A reconciled line item. taxCode "VAT15" (15%) or "VAT0" (zero-rated).
+ * Pass `gtin` (barcode) to attach one — V-SDC accepts 8–14 chars; omit or
+ * pass null for lines without a barcode (the field is left off the wire body).
+ */
 export function vatLine(
   description,
   unitPrice,
   quantity = 1,
   taxCode = "VAT15",
+  gtin = null,
 ) {
   const rate = taxCode === "VAT0" ? 0 : 15;
   const lineSubtotal = round2(unitPrice * quantity);
@@ -153,6 +154,7 @@ export function vatLine(
     lineSubtotal,
     lineTaxAmount,
     lineTotal: round2(lineSubtotal + lineTaxAmount),
+    ...(gtin ? { gtin } : {}),
   };
 }
 
@@ -169,7 +171,7 @@ export const uniqueNumber = (prefix = "EX") =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 export const BUYER = {
-  tin: "12345678",
+  tin: "123456",
   name: "Acme Trading Ltd",
   email: "accounts@acme-trading.test",
 };

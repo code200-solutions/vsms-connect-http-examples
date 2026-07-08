@@ -5,7 +5,7 @@
 // 422 LOCATION_NOT_FOUND). Omit it and the API key's location, or the business
 // default, is used. `locationId` is forbidden on COPY and ignored on REFUND.
 //
-//   VSMS_CONNECT_LOCATION_ID=<uuid> node --env-file=.env examples/sale-to-location.mjs
+//   VSMS_CONNECT_LOCATION_ID=<uuid> node --env-file=.env examples/17-sale-to-location.mjs
 //   (or set VSMS_CONNECT_LOCATION_ID in .env)
 import {
   fiscalise,
