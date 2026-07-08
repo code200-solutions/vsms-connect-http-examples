@@ -1,4 +1,4 @@
-# vsms-connect-http-client
+# vsms-connect-http-examples
 
 Zero-dependency **integration examples** and an **E2E test suite** for the VSMS Connect **generic HTTP connector** — the `/api/v1/businesses/:businessId/fiscalise` surface an external POS integrator talks to: `ApiKey` auth, normalized invoice ingestion, status polling, proforma trigger, refunds, copies, and cancellations.
 
