@@ -30,6 +30,9 @@ node --env-file=.env examples/14-training-refund.mjs
 # Extras
 node --env-file=.env examples/16-sale-mixed.mjs              # multi-line, VAT15 + VAT0, split cash/card tender
 node --env-file=.env examples/17-sale-to-location.mjs           # sale signed by a specific location's cert (needs VSMS_CONNECT_LOCATION_ID)
+node --env-file=.env examples/18-partial-refund-by-line.mjs  # refund one line of a multi-line sale (item-level partial refund)
+node --env-file=.env examples/19-refund-different-tender.mjs # sale paid CASH, refunded to CARD
+node --env-file=.env examples/20-multiple-partial-refunds.mjs # two partial refunds against one sale
 node --env-file=.env examples/15-cancel.mjs <fiscalInvoiceNumber>
 node --env-file=.env examples/status-poll.mjs <invoiceId>    # poll a 202 (queued) invoice to terminal
 ```
@@ -43,6 +46,8 @@ yarn case --list           # list every case
 ```
 
 Read `examples/01-normal-sale.mjs` and `examples/lib.mjs` first — together they are the smallest complete integration and document every wire gotcha (nested response envelope, BIGINT-string timestamps, server-side idempotency) in comments. See [examples/README.md](examples/README.md) for the full index.
+
+Examples `18`–`20` cover the richer refund cases — item-level partial refunds, refunding in a different tender than the sale, and several partial refunds against one sale. See the **Refund parity** section of [examples/README.md](examples/README.md#refund-parity-1820).
 
 ## Configuration
 
