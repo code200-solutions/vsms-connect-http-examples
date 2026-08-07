@@ -2,7 +2,7 @@
 
 Standalone Node.js + TypeScript CLI that tests the **VSMS Connect generic HTTP connector** the way a real external POS integrator would. This document is the single source of truth for the implementation.
 
-The client is fully independent: **no imports from the VSMS Connect backend repo's workspaces.** All wire types are transcribed (copied) into this repo. The wire contract below was verified against the backend's HTTP connector source (`connectors/http/` — route, controller, and Zod request schema) on 2026-07-02.
+The client is fully independent: **no imports from the VSMS Connect backend repo's workspaces.** All wire types are transcribed (copied) into this repo. The wire contract below was verified against the backend's HTTP connector source (`connectors/http/` — route, controller, and Zod request schema) on 2026-07-02; the open `taxCode` vocabulary and the `POST /tax-rates` declaration endpoint were verified on 2026-08-07 (TAXCORE-635 / TAXCORE-636).
 
 ## 1. Wire contract
 
@@ -10,12 +10,13 @@ The client is fully independent: **no imports from the VSMS Connect backend repo
 
 Base URL is configured _up to and including_ `/api/v1` (e.g. `http://localhost:3000/api/v1`).
 
-| Method | Path                                                     | Purpose                                                                                                       |
-| ------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| POST   | `/businesses/:businessId/fiscalise?sync_timeout_ms=<ms>` | Ingest a normalized invoice. Sync-waits for fiscalisation up to `sync_timeout_ms` (default 10000, cap 30000). |
-| GET    | `/businesses/:businessId/fiscalise/:invoiceId`           | Poll invoice/payment status.                                                                                  |
-| POST   | `/businesses/:businessId/fiscalise/:invoiceId/trigger`   | Dispatch a previously-accepted PROFORMA to fiscalisation.                                                     |
-| POST   | `/businesses/:businessId/fiscalise/cancel`               | Submit a cancellation document. Body: `{ "fiscalInvoiceNumber": "<sdc fiscal number>" }`.                     |
+| Method | Path                                                     | Purpose                                                                                                                                                         |
+| ------ | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/businesses/:businessId/fiscalise?sync_timeout_ms=<ms>` | Ingest a normalized invoice. Sync-waits for fiscalisation up to `sync_timeout_ms` (default 10000, cap 30000).                                                   |
+| GET    | `/businesses/:businessId/fiscalise/:invoiceId`           | Poll invoice/payment status.                                                                                                                                    |
+| POST   | `/businesses/:businessId/fiscalise/:invoiceId/trigger`   | Dispatch a previously-accepted PROFORMA to fiscalisation.                                                                                                       |
+| POST   | `/businesses/:businessId/fiscalise/cancel`               | Submit a cancellation document. Body: `{ "fiscalInvoiceNumber": "<sdc fiscal number>" }`.                                                                       |
+| POST   | `/businesses/:businessId/tax-rates`                      | Declare the caller's tax table so an admin can map each code to a V-SDC label before the first invoice. Body: `{ "taxRates": [{ "code", "name"?, "rate"? }] }`. |
 
 ### Authentication
 
@@ -40,7 +41,9 @@ Mirrors the backend's `NormalizedInvoice`-shaped wire schema:
 - `locationId?` — optional uuid (multi-location). On a fresh SALE it selects which location's default certificate signs the invoice; it must belong to the business (else 422 `LOCATION_NOT_FOUND`) and **wins over the API key's location** (body-wins). Omit to use the API key's location, or the business default. **Forbidden on COPY** (a copy inherits its source's location → 422 `INVALID_COPY_BODY`) and **ignored on REFUND / advance-append** (those follow the source / existing invoice). A refund/copy is always signed by the same location certificate as the original — the client never sets `locationId` on those.
 - Non-COPY additionally requires: `invoiceDate` (epoch ms or ISO-8601 string), `currencyCode` (3 chars, `'VUV'`), non-empty `lineItems[]`, non-empty `payments[]`, and `subtotalAmount` / `taxAmount` / `totalAmount`.
 - `buyer?` — `{ tin? (≤20), name?, costCentreId? (≤50), email? }` — presence triggers the "with buyer" case; `email` gets a receipt copy emailed.
-- Line item: `{ description (1–2048), quantity (≥0.001), unitPrice, taxRatePercent, lineSubtotal, lineTaxAmount, lineTotal, gtin? (8–14 chars), sortOrder?, itemAdditionalFields? }` plus **exactly one of** `taxCode` (`'VAT15' | 'VAT0'`, resolved via per-business tax mappings) **or** `taxLabel` (raw V-SDC label `'A'|'B'|'C'|'D'|'E'|'F'|'N'|'P'|'T'`).
+- Line item: `{ description (1–2048), quantity (≥0.001), unitPrice, taxRatePercent, lineSubtotal, lineTaxAmount, lineTotal, gtin? (8–14 chars), sortOrder?, itemAdditionalFields? }` plus **exactly one of** `taxCode` **or** `taxLabel`:
+  - `taxCode` — a semantic code resolved to a V-SDC label via the business's tax mappings. **Open vocabulary**: any non-empty string ≤100 chars (`TAX_CODE_EMPTY` / `TAX_CODE_TOO_LONG` otherwise). `'VAT15'` / `'VAT0'` are pre-seeded defaults; any other code is accepted and, if not yet mapped, blocks the invoice with `MISSING_TAX_MAPPING` and surfaces in the admin's unmapped-tax-types panel for mapping (declare codes up front via `POST /tax-rates` to avoid the first-invoice block). Not restricted to a fixed set.
+  - `taxLabel` — a raw V-SDC label (`'A'|'B'|'C'|'D'|'E'|'F'|'N'|'P'|'T'`), the escape hatch that bypasses mapping. This wire field is a single label (unchanged); the backend's internal line-item representation is a `taxLabels` array, but an HTTP line always resolves to at most one label.
 - Payment: `{ amount, paymentType ('CASH'|'CARD'|'CHECK'|'WIRE_TRANSFER'|'VOUCHER'|'MOBILE_MONEY'|'OTHER'), paymentDate (epoch ms or ISO), externalPaymentId?, tenders?: [{ amount, paymentType }] }`.
 - Reconciliation guards (all ±0.01, else 422 `LINE_SUM_MISMATCH` / `PAYMENT_SUM_MISMATCH` / `TENDER_SUM_MISMATCH`):
   - Σ`lineSubtotal` ≈ `subtotalAmount`; Σ`lineTaxAmount` ≈ `taxAmount`; Σ`lineTotal` ≈ `totalAmount`; Σ`payments[].amount` ≈ `totalAmount`; per payment Σ`tenders[].amount` ≈ `payment.amount`.
@@ -48,6 +51,21 @@ Mirrors the backend's `NormalizedInvoice`-shaped wire schema:
 - **REFUND**: `referentDocumentNumber` (the source payment's SDC fiscal number, ≤50) is required (422 `REFUND_REFERENT_REQUIRED` otherwise); `referentDocumentDT` is optional ISO-8601 (server derives it when omitted). The refund **reuses the original sale's `invoiceNumber`**.
 - **PROFORMA → NORMAL conversion**: send a NORMAL SALE with `reference` = the proforma's `invoiceNumber`.
 - `invoiceAdditionalFields?` / `paymentAdditionalFields?` — string records forwarded to V-SDC.
+
+### Tax-rate declaration (POST /tax-rates)
+
+The push-connector equivalent of the OAuth connectors' "list all tax rates" pull: VSMS Connect cannot enumerate a caller's tax rates, so the caller declares them and a business admin maps each code to a V-SDC label before the first invoice arrives.
+
+- Auth: the same `Authorization: ApiKey <raw-key>` (scope `http`) the `/fiscalise` routes use. **Not** idempotency-keyed — a re-declaration inside the cache window must not be hidden.
+- Body: `{ "taxRates": [{ "code", "name"?, "rate"? }] }`. `code` is a non-empty string ≤100 chars (`TAX_RATE_CODE_EMPTY` / `TAX_RATE_CODE_TOO_LONG`); `name` (≤500) and `rate` are both optional and nullable — send what you know.
+- Behaviour per code (**nothing is ever auto-confirmed**; a caller can never change what its invoices are signed as):
+  - **not yet mapped** → written as a proposal for admin confirmation; re-submitting refreshes its name/rate.
+  - **confirmed, rate drifted** (|Δ| > 0.01 pts) → the mapping is deactivated for re-review, so its invoices block until the admin re-maps to a label matching the new rate.
+  - **confirmed, name-only change** → a non-blocking metadata refresh.
+  - **confirmed, unchanged** → untouched.
+- Payload: `{ proposed: [{ code, name, rate }], driftDetected, nameRefreshed, alreadyMapped }`.
+
+See `examples/21-declare-tax-rates.mjs`.
 
 ### Response envelope
 
@@ -151,7 +169,7 @@ The client never registers businesses — like a real integrator it is _handed_ 
 
 1. Register a business in the app (licence key → account → business → certificate upload).
 2. Create an API key with scope `http` on the API Keys screen.
-3. Seed HTTP tax mappings so `taxCode: 'VAT15'` resolves — or send a raw `taxLabel` to bypass mapping.
+3. Map the tax codes your invoices will use to V-SDC labels. `VAT15` / `VAT0` are pre-seeded, so a simple integrator can skip this. For any other code, either declare your table up front via `POST /businesses/:id/tax-rates` (see `examples/21-declare-tax-rates.mjs`) or just send an invoice with it (the code surfaces automatically), then have an admin confirm each mapping on the HTTP integration screen. A raw `taxLabel` bypasses mapping entirely.
 4. Copy `.env.example` → `.env` and fill the three values.
 
 ## 4. Verification checklist

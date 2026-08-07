@@ -18,6 +18,7 @@ if (!BASE || !BUSINESS || !API_KEY) {
 }
 
 const FISCALISE = `${BASE}/businesses/${BUSINESS}/fiscalise`;
+const TAX_RATES = `${BASE}/businesses/${BUSINESS}/tax-rates`;
 const HEADERS = {
   // No JWT and no Idempotency-Key header — the server derives an idempotency
   // key from invoiceNumber + a body hash, so a byte-identical retry replays.
@@ -32,7 +33,30 @@ async function call(method, url, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(60_000),
   });
-  const envelope = await res.json();
+  // Read as text first so a non-JSON response (an HTML 404 / proxy error page,
+  // or the SPA's index.html when the URL points at the app instead of the API)
+  // becomes a clear diagnostic rather than a cryptic `Unexpected token '<'`.
+  const raw = await res.text();
+  let envelope;
+  try {
+    envelope = JSON.parse(raw);
+  } catch {
+    const snippet = raw.slice(0, 120).replace(/\s+/g, " ").trim();
+    return {
+      status: res.status,
+      envelope: {
+        error: true,
+        status: res.status,
+        code: "NON_JSON_RESPONSE",
+        message:
+          `Expected JSON from ${method} ${url} but got a non-JSON response ` +
+          `(HTTP ${res.status}). Usually means VSMS_CONNECT_BACKEND_URL is wrong ` +
+          `(pointing at the app/proxy, not the API), or this backend build ` +
+          `predates the endpoint. First bytes: ${snippet}`,
+      },
+      payload: null,
+    };
+  }
   // Success envelopes nest the payload: { data: { object, data: <payload> } }.
   const payload = envelope.error ? null : (envelope.data?.data ?? null);
   return { status: res.status, envelope, payload };
@@ -47,6 +71,16 @@ export const cancelDoc = (fiscalInvoiceNumber) =>
   });
 export const getStatus = (invoiceId) =>
   call("GET", `${FISCALISE}/${invoiceId}`);
+
+/**
+ * Declare the caller's tax table (the push equivalent of "list all tax rates").
+ * `taxRates` is an array of `{ code, name?, rate? }`. Each not-yet-mapped code
+ * becomes a PROPOSAL a business admin confirms to a V-SDC label; re-declaring a
+ * rate that diverges from an already-confirmed mapping flags it for re-review.
+ * Nothing is auto-confirmed. Payload: `{ proposed, driftDetected, nameRefreshed, alreadyMapped }`.
+ */
+export const declareTaxRates = (taxRates) =>
+  call("POST", TAX_RATES, { taxRates });
 
 const IN_FLIGHT = new Set([
   "pending",

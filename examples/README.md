@@ -53,6 +53,8 @@ node --env-file=.env examples/17-sale-to-location.mjs           # sale signed by
 node --env-file=.env examples/18-partial-refund-by-line.mjs  # refund one line of a multi-line sale (item-level partial refund)
 node --env-file=.env examples/19-refund-different-tender.mjs # sale paid CASH, refunded to CARD
 node --env-file=.env examples/20-multiple-partial-refunds.mjs # two partial refunds against one sale
+node --env-file=.env examples/21-declare-tax-rates.mjs      # declare your tax table up front → admin maps each code to a V-SDC label
+node --env-file=.env examples/22-custom-tax-code.mjs [CODE] # send an unmapped code → accepted but blocked (MISSING_TAX_MAPPING), surfaces for mapping
 node --env-file=.env examples/15-cancel.mjs <fiscalInvoiceNumber>
 node --env-file=.env examples/status-poll.mjs <invoiceId>    # poll a 202 (queued) invoice to terminal
 ```
@@ -61,10 +63,18 @@ node --env-file=.env examples/status-poll.mjs <invoiceId>    # poll a 202 (queue
 
 These three show the refund cases beyond a plain whole-invoice refund. Each creates its own sale inline, then refunds against that sale's fiscal number.
 
-| Script | Demonstrates |
-| --- | --- |
-| `18-partial-refund-by-line.mjs` | **Item-level partial refund** — the refund body carries its own line item(s), so you return specific lines rather than a proportional slice of the whole invoice. The refund total is below the sale total. |
-| `19-refund-different-tender.mjs` | **Refund in a different tender than the sale** — the sale is paid `CASH`, the refund settles to `CARD`. The refund's `paymentType` drives the credit note's tender. |
+| Script                            | Demonstrates                                                                                                                                                                                                   |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `18-partial-refund-by-line.mjs`   | **Item-level partial refund** — the refund body carries its own line item(s), so you return specific lines rather than a proportional slice of the whole invoice. The refund total is below the sale total.    |
+| `19-refund-different-tender.mjs`  | **Refund in a different tender than the sale** — the sale is paid `CASH`, the refund settles to `CARD`. The refund's `paymentType` drives the credit note's tender.                                            |
 | `20-multiple-partial-refunds.mjs` | **Several partial refunds against one sale** — two refunds against the same sale fiscal number, each returning a different line. The running total is guarded server-side and can never exceed the sale total. |
+
+### Tax-rate declaration (`21`)
+
+`21-declare-tax-rates.mjs` demonstrates `POST /businesses/:businessId/tax-rates` — the push-connector equivalent of "list all tax rates". Because VSMS Connect cannot pull your tax catalogue, you **declare** it: each code you send that isn't already mapped becomes a proposal a business admin maps to a V-SDC label on the HTTP integration screen. `taxCode` on a line item is an open vocabulary (any non-empty string ≤100 chars) — `VAT15`/`VAT0` are pre-seeded defaults, and any other code you use is accepted and surfaces for mapping (either by declaring it here up front, or automatically the first time it appears on an invoice, which blocks that invoice with `MISSING_TAX_MAPPING` until mapped). Nothing declared is ever auto-confirmed; re-declaring a confirmed code only flags rate drift for re-review or refreshes its name.
+
+### Custom / unmapped tax code (`22`)
+
+`22-custom-tax-code.mjs` is the discovery counterpart to `21`: it sends a fresh SALE with a `taxCode` you haven't mapped (default `TESTRATE`, or pass one as the first arg). The invoice is **accepted** (proving the open vocabulary — a pre-635 backend would reject it with a `422` at the wire, which the script detects and calls out) but **blocked** with `MISSING_TAX_MAPPING` — persisted, not fiscalised — and the code appears in the admin's unmapped-tax-types panel for mapping. This is the truest check for a **new business**: a fresh business has no HTTP tax mappings at all (registration seeds only a default location + certificate, never tax mappings), so on day 0 every code blocks until an admin auto-seeds `VAT15`/`VAT0`, declares via `21`, or maps the discovered code. If the code is already mapped the script reports the sale fiscalised instead.
 
 Run from the repo root (the `--env-file` path is resolved from the working directory). For the full assertable matrix in one command, use `yarn test` (see [../README.md](../README.md)).
