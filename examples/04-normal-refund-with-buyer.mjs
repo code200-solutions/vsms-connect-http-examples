@@ -6,7 +6,7 @@
 import {
   fiscalise,
   expectFiscalised,
-  firstFiscal,
+  requireFiscal,
   printReceipt,
   vatLine,
   totalsOf,
@@ -39,8 +39,11 @@ const sale = await expectFiscalised(
   }),
   "buyer sale to refund",
 );
-const src = firstFiscal(sale);
+// The sale must be signed before we can refund it (clear message if not).
+requireFiscal(sale, "buyer sale to refund");
 
+// The refund reuses the sale's invoiceNumber; the server resolves the source
+// from it (TAXCORE-639), so no SDC fiscal number is echoed back.
 const refundLines = [vatLine("Office supplies bundle — refund", 5000, 1)];
 printReceipt(
   await expectFiscalised(
@@ -48,7 +51,6 @@ printReceipt(
       invoiceNumber,
       invoiceType: "NORMAL",
       transactionType: "REFUND",
-      referentDocumentNumber: src.number,
       invoiceDate: new Date().toISOString(),
       currencyCode: "VUV",
       cashierId: "example-pos",

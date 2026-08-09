@@ -9,7 +9,7 @@
 import {
   fiscalise,
   expectFiscalised,
-  firstFiscal,
+  requireFiscal,
   printReceipt,
   vatLine,
   totalsOf,
@@ -41,7 +41,7 @@ const sale = await expectFiscalised(
   }),
   "sale to partially refund",
 );
-const src = firstFiscal(sale);
+requireFiscal(sale, "sale to partially refund");
 
 // (b) refund ONLY the mug — a single-line refund body. Its total (575 incl.
 // VAT) is below the sale total, so this is an item-level partial refund: the
@@ -53,7 +53,6 @@ printReceipt(
       invoiceNumber,
       invoiceType: "NORMAL",
       transactionType: "REFUND",
-      referentDocumentNumber: src.number,
       invoiceDate: new Date().toISOString(),
       currencyCode: "VUV",
       cashierId: "example-pos",

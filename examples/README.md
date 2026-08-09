@@ -12,6 +12,8 @@ cp ../.env.example ../.env   # backend URL, business ID, http-scoped API key
 
 Node ≥ 20.6 (`--env-file` + native `fetch`). Nothing to install.
 
+**One-time tax setup (required).** There are no pre-seeded tax codes (TAXCORE-646), so before the sale/refund cases can sign, the business must have the codes these scripts use — `VAT15` and `VAT0` — mapped to V-SDC labels. Declare them with `21-declare-tax-rates.mjs`, then have an admin confirm each mapping on the HTTP integration screen. Until that is done every invoice comes back **imported + blocked** with `MISSING_TAX_MAPPING` (a 201, not a fiscalised 200) — see `22-custom-tax-code.mjs` for exactly that state.
+
 ## Running one case at a time
 
 Shortcut — `yarn case <number|name>` dispatches to the matching script (env inherited, extra args passed through):
@@ -55,7 +57,8 @@ node --env-file=.env examples/19-refund-different-tender.mjs # sale paid CASH, r
 node --env-file=.env examples/20-multiple-partial-refunds.mjs # two partial refunds against one sale
 node --env-file=.env examples/21-declare-tax-rates.mjs      # declare your tax table up front → admin maps each code to a V-SDC label
 node --env-file=.env examples/22-custom-tax-code.mjs [CODE] # send an unmapped code → accepted but blocked (MISSING_TAX_MAPPING), surfaces for mapping
-node --env-file=.env examples/15-cancel.mjs <fiscalInvoiceNumber>
+node --env-file=.env examples/23-get-invoice.mjs <invoiceId> # retrieve one invoice by its invoiceId → prints status + block reasons (single GET, no polling)
+node --env-file=.env examples/15-cancel.mjs                 # makes a sale, cancels it by invoiceNumber (no SDC number)
 node --env-file=.env examples/status-poll.mjs <invoiceId>    # poll a 202 (queued) invoice to terminal
 ```
 
@@ -71,10 +74,14 @@ These three show the refund cases beyond a plain whole-invoice refund. Each crea
 
 ### Tax-rate declaration (`21`)
 
-`21-declare-tax-rates.mjs` demonstrates `POST /businesses/:businessId/tax-rates` — the push-connector equivalent of "list all tax rates". Because VSMS Connect cannot pull your tax catalogue, you **declare** it: each code you send that isn't already mapped becomes a proposal a business admin maps to a V-SDC label on the HTTP integration screen. `taxCode` on a line item is an open vocabulary (any non-empty string ≤100 chars) — `VAT15`/`VAT0` are pre-seeded defaults, and any other code you use is accepted and surfaces for mapping (either by declaring it here up front, or automatically the first time it appears on an invoice, which blocks that invoice with `MISSING_TAX_MAPPING` until mapped). Nothing declared is ever auto-confirmed; re-declaring a confirmed code only flags rate drift for re-review or refreshes its name.
+`21-declare-tax-rates.mjs` demonstrates `POST /businesses/:businessId/tax-rates` — the push-connector equivalent of "list all tax rates". Because VSMS Connect cannot pull your tax catalogue, you **declare** it: each code you send that isn't already mapped becomes a proposal a business admin maps to a V-SDC label on the HTTP integration screen. `taxCode` on a line item is an open vocabulary (any non-empty string ≤100 chars) — there are **no pre-seeded defaults**, so a fresh business must map every code it uses (even `VAT15`/`VAT0`) before an invoice carrying it can sign. Any code you use is accepted on the wire and surfaces for mapping (either by declaring it here up front, or automatically the first time it appears on an invoice, which blocks that invoice with `MISSING_TAX_MAPPING` until mapped). Nothing declared is ever auto-confirmed; re-declaring a confirmed code only flags rate/name drift for re-review.
+
+### Retrieve an invoice (`23`)
+
+`23-get-invoice.mjs` is the **retrieval** case — the one GET the connector exposes: `GET /businesses/:businessId/fiscalise/:invoiceId`. Lookup is by the **server-issued `invoiceId` GUID** (echoed in every POST response — not your `invoiceNumber`, and not the SDC `fiscalInvoiceNumber`), business-scoped by the API key. There is no list/search endpoint and no lookup by `invoiceNumber`, so the integrator is the system of record for the id. It does a **single** GET and prints the current state — including the `eligibleForFiscalisation` / `fiscalisationBlockReasons` fields (TAXCORE-645) — so it works on a still-`imported` invoice. Use this rather than `status-poll.mjs` when you just want the current state: `status-poll.mjs` loops until every payment is terminal and would hang on a non-terminal `imported` invoice.
 
 ### Custom / unmapped tax code (`22`)
 
-`22-custom-tax-code.mjs` is the discovery counterpart to `21`: it sends a fresh SALE with a `taxCode` you haven't mapped (default `TESTRATE`, or pass one as the first arg). The invoice is **accepted** (proving the open vocabulary — a pre-635 backend would reject it with a `422` at the wire, which the script detects and calls out) but **blocked** with `MISSING_TAX_MAPPING` — persisted, not fiscalised — and the code appears in the admin's unmapped-tax-types panel for mapping. This is the truest check for a **new business**: a fresh business has no HTTP tax mappings at all (registration seeds only a default location + certificate, never tax mappings), so on day 0 every code blocks until an admin auto-seeds `VAT15`/`VAT0`, declares via `21`, or maps the discovered code. If the code is already mapped the script reports the sale fiscalised instead.
+`22-custom-tax-code.mjs` is the discovery counterpart to `21`: it sends a fresh SALE with a `taxCode` you haven't mapped (default `TESTRATE`, or pass one as the first arg). The invoice is **accepted** (proving the open vocabulary — a pre-635 backend would reject it with a `422` at the wire, which the script detects and calls out) but **blocked** with `MISSING_TAX_MAPPING` — persisted, not fiscalised — and the code appears in the admin's unmapped-tax-types panel for mapping. This is the truest check for a **new business**: a fresh business has no HTTP tax mappings at all (registration seeds only a default location + certificate, never tax mappings — and since TAXCORE-646 there is no "Initialize"/auto-seed shortcut either), so on day 0 every code blocks until an admin declares via `21` (or lets the code surface from an invoice) and then maps it on the HTTP integration screen. If the code is already mapped the script reports the sale fiscalised instead.
 
 Run from the repo root (the `--env-file` path is resolved from the working directory). For the full assertable matrix in one command, use `yarn test` (see [../README.md](../README.md)).

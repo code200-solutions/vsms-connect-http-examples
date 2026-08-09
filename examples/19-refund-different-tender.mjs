@@ -6,7 +6,7 @@
 import {
   fiscalise,
   expectFiscalised,
-  firstFiscal,
+  requireFiscal,
   printReceipt,
   vatLine,
   totalsOf,
@@ -34,7 +34,7 @@ const sale = await expectFiscalised(
   }),
   "sale (paid CASH)",
 );
-const src = firstFiscal(sale);
+requireFiscal(sale, "sale (paid CASH)");
 
 // (b) the refund — same amount, but settled to CARD.
 const refundLines = [vatLine("Wireless headphones — refund", 8000)];
@@ -44,7 +44,6 @@ printReceipt(
       invoiceNumber,
       invoiceType: "NORMAL",
       transactionType: "REFUND",
-      referentDocumentNumber: src.number,
       invoiceDate: new Date().toISOString(),
       currencyCode: "VUV",
       cashierId: "example-pos",

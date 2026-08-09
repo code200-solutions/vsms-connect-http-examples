@@ -10,13 +10,13 @@ The client is fully independent: **no imports from the VSMS Connect backend repo
 
 Base URL is configured _up to and including_ `/api/v1` (e.g. `http://localhost:3000/api/v1`).
 
-| Method | Path                                                     | Purpose                                                                                                                                                         |
-| ------ | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/businesses/:businessId/fiscalise?sync_timeout_ms=<ms>` | Ingest a normalized invoice. Sync-waits for fiscalisation up to `sync_timeout_ms` (default 10000, cap 30000).                                                   |
-| GET    | `/businesses/:businessId/fiscalise/:invoiceId`           | Poll invoice/payment status.                                                                                                                                    |
-| POST   | `/businesses/:businessId/fiscalise/:invoiceId/trigger`   | Dispatch a previously-accepted PROFORMA to fiscalisation.                                                                                                       |
-| POST   | `/businesses/:businessId/fiscalise/cancel`               | Submit a cancellation document. Body: `{ "fiscalInvoiceNumber": "<sdc fiscal number>" }`.                                                                       |
-| POST   | `/businesses/:businessId/tax-rates`                      | Declare the caller's tax table so an admin can map each code to a V-SDC label before the first invoice. Body: `{ "taxRates": [{ "code", "name"?, "rate"? }] }`. |
+| Method | Path                                                     | Purpose                                                                                                                                                                                      |
+| ------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/businesses/:businessId/fiscalise?sync_timeout_ms=<ms>` | Ingest a normalized invoice. Sync-waits for fiscalisation up to `sync_timeout_ms` (default 10000, cap 30000).                                                                                |
+| GET    | `/businesses/:businessId/fiscalise/:invoiceId`           | Poll invoice/payment status.                                                                                                                                                                 |
+| POST   | `/businesses/:businessId/fiscalise/:invoiceId/trigger`   | Dispatch a previously-accepted PROFORMA to fiscalisation.                                                                                                                                    |
+| POST   | `/businesses/:businessId/fiscalise/cancel`               | Submit a cancellation document. Target the payment by `{ "fiscalInvoiceNumber": "<sdc>" }` **or** by your own `{ "invoiceNumber", "transactionType"?, "externalPaymentId"? }` (TAXCORE-639). |
+| POST   | `/businesses/:businessId/tax-rates`                      | Declare the caller's tax table so an admin can map each code to a V-SDC label before the first invoice. Body: `{ "taxRates": [{ "code", "name"?, "rate"? }] }`.                              |
 
 ### Authentication
 
@@ -42,13 +42,16 @@ Mirrors the backend's `NormalizedInvoice`-shaped wire schema:
 - Non-COPY additionally requires: `invoiceDate` (epoch ms or ISO-8601 string), `currencyCode` (3 chars, `'VUV'`), non-empty `lineItems[]`, non-empty `payments[]`, and `subtotalAmount` / `taxAmount` / `totalAmount`.
 - `buyer?` — `{ tin? (≤20), name?, costCentreId? (≤50), email? }` — presence triggers the "with buyer" case; `email` gets a receipt copy emailed.
 - Line item: `{ description (1–2048), quantity (≥0.001), unitPrice, taxRatePercent, lineSubtotal, lineTaxAmount, lineTotal, gtin? (8–14 chars), sortOrder?, itemAdditionalFields? }` plus **exactly one of** `taxCode` **or** `taxLabel`:
-  - `taxCode` — a semantic code resolved to a V-SDC label via the business's tax mappings. **Open vocabulary**: any non-empty string ≤100 chars (`TAX_CODE_EMPTY` / `TAX_CODE_TOO_LONG` otherwise). `'VAT15'` / `'VAT0'` are pre-seeded defaults; any other code is accepted and, if not yet mapped, blocks the invoice with `MISSING_TAX_MAPPING` and surfaces in the admin's unmapped-tax-types panel for mapping (declare codes up front via `POST /tax-rates` to avoid the first-invoice block). Not restricted to a fixed set.
+  - `taxCode` — a semantic code resolved to a V-SDC label via the business's tax mappings. **Open vocabulary**: any non-empty string ≤100 chars (`TAX_CODE_EMPTY` / `TAX_CODE_TOO_LONG` otherwise). There are **no pre-seeded codes** — a fresh business has an empty mapping table, so `VAT15` / `VAT0` are not special and every code (including those two) must be mapped before it can sign. Any code that is not yet mapped is still accepted on the wire but blocks the invoice with `MISSING_TAX_MAPPING` and surfaces in the admin's unmapped-tax-types panel for mapping (declare codes up front via `POST /tax-rates` to avoid the first-invoice block). Not restricted to a fixed set.
   - `taxLabel` — a raw V-SDC label (`'A'|'B'|'C'|'D'|'E'|'F'|'N'|'P'|'T'`), the escape hatch that bypasses mapping. This wire field is a single label (unchanged); the backend's internal line-item representation is a `taxLabels` array, but an HTTP line always resolves to at most one label.
 - Payment: `{ amount, paymentType ('CASH'|'CARD'|'CHECK'|'WIRE_TRANSFER'|'VOUCHER'|'MOBILE_MONEY'|'OTHER'), paymentDate (epoch ms or ISO), externalPaymentId?, tenders?: [{ amount, paymentType }] }`.
 - Reconciliation guards (all ±0.01, else 422 `LINE_SUM_MISMATCH` / `PAYMENT_SUM_MISMATCH` / `TENDER_SUM_MISMATCH`):
   - Σ`lineSubtotal` ≈ `subtotalAmount`; Σ`lineTaxAmount` ≈ `taxAmount`; Σ`lineTotal` ≈ `totalAmount`; Σ`payments[].amount` ≈ `totalAmount`; per payment Σ`tenders[].amount` ≈ `payment.amount`.
-- **COPY**: `source: { referencedFiscalNumber (≤50), referencedFiscalTimestamp (ISO-8601 with offset) }` is required; `lineItems`, `payments`, `buyer`, `invoiceDate`, `currencyCode`, the three totals, and referent fields are all **forbidden** (422 `INVALID_COPY_BODY`). Body is just `invoiceNumber` + `invoiceType` + `transactionType` + `cashierId` + `source`.
-- **REFUND**: `referentDocumentNumber` (the source payment's SDC fiscal number, ≤50) is required (422 `REFUND_REFERENT_REQUIRED` otherwise); `referentDocumentDT` is optional ISO-8601 (server derives it when omitted). The refund **reuses the original sale's `invoiceNumber`**.
+- **COPY**: names the source payment one of two ways (TAXCORE-639), and `lineItems`, `payments`, `buyer`, `invoiceDate`, `currencyCode`, the three totals, `referentDocumentNumber`/`referentDocumentDT`, and `locationId` are all **forbidden** (422 `INVALID_COPY_BODY`):
+  - **`source: { referencedFiscalNumber (≤50), referencedFiscalTimestamp (ISO-8601 with offset) }`** — the SDC fiscal number of the document to copy. Explicit, authoritative, per-payment. No SDC number needed unless you want to pin one exactly.
+  - **Omit `source`** and reuse the original invoice's `invoiceNumber` — the server resolves the source from that number's family (sale + linked refunds/copies), split by the COPY's own `transactionType`: **`SALE`** resolves the original sale, **`REFUND`** resolves the refund. So both a sale copy and a **refund copy** work with no SDC number. A multi-payment source (advance/split, or several partial refunds) is named by `sourceExternalPaymentId` (your own id); otherwise a single fiscalised match auto-resolves, and an ambiguous or unsigned source is a 422.
+  - Supplying **both** `source` and `sourceExternalPaymentId` is rejected (`INVALID_COPY_BODY`).
+- **REFUND**: the refund **reuses the original sale's `invoiceNumber`**, and that is how the server resolves the source invoice — you do **not** have to echo the sale's SDC fiscal number (TAXCORE-639). `referentDocumentNumber` (the source payment's SDC fiscal number, ≤50) is now **optional**; supply it only to pin one specific payment by its fiscal number. For a sale with several fiscalised payments (advance/deposit chain, split settlement) use `sourceExternalPaymentId` — the caller's own `externalPaymentId` from the sale — to say which payment is being refunded. With neither field, a sale that has exactly one fiscalised payment refunds that payment automatically; only a genuinely ambiguous source (several fiscalised payments, nothing to choose by) is rejected with `422`, naming the candidates by their `externalPaymentId`. `sourceExternalPaymentId` is distinct from `payments[].externalPaymentId`, which describes the refund's **own** tender rows. `referentDocumentDT` is optional ISO-8601 (server derives it when omitted).
 - **PROFORMA → NORMAL conversion**: send a NORMAL SALE with `reference` = the proforma's `invoiceNumber`.
 - `invoiceAdditionalFields?` / `paymentAdditionalFields?` — string records forwarded to V-SDC.
 
@@ -88,6 +91,8 @@ Error: `{ error: true, status, message, code, validationErrors?, retryAfter? }` 
     fiscalQrCode: string | null;
     fiscalSignedHash: string | null;
     fiscalJournal: string | null; // textual receipt — print verbatim, preserve newlines
+    eligibleForFiscalisation: boolean | null; // null = not yet evaluated
+    fiscalisationBlockReasons: string[]; // e.g. ['MISSING_TAX_MAPPING'] when blocked
   }>;
   jobId: string | null;
   statusUrl: string | null;
@@ -95,9 +100,11 @@ Error: `{ error: true, status, message, code, validationErrors?, retryAfter? }` 
 }
 ```
 
-HTTP statuses: **200** fiscalised within the sync-wait window · **202** queued (poll `statusUrl`) · **201** PROFORMA accepted (`triggerUrl` returned; not auto-dispatched) · **422** validation rejection · **502** `FISCAL_ERROR` (V-SDC rejected) · **401/403** auth/scope · **429** rate-limited (`retryAfter`).
+`eligibleForFiscalisation` + `fiscalisationBlockReasons` (TAXCORE-645) make the post-import states machine-distinguishable without prose: `status: 'fiscalised'`/`'pending'`; imported **and** `eligibleForFiscalisation: true` → awaiting an admin's fiscalise action; **blocked** → `eligibleForFiscalisation: false` with the reason(s) (e.g. `['MISSING_TAX_MAPPING']`). `null` means eligibility has not been evaluated yet — distinct from an explicit `false`.
 
-The cancel payload additionally carries `cancellationPaymentId`; cancel returns 200 (terminal in-window) or 202 (poll), 404 unknown fiscal number, 409 cancellation already in flight.
+HTTP statuses: **200** fiscalised within the sync-wait window · **202** queued (poll `statusUrl`) · **201** imported but not auto-dispatched — **PROFORMA** returns a working `triggerUrl` (fiscalise it via `POST /fiscalise/:invoiceId/trigger`); **NORMAL/ADVANCE** with the connector's auto-fiscalise toggle **off** (or a blocked invoice) returns `triggerUrl: null` + a `statusUrl` to poll, because dispatch for those is an admin action in the app — there is no HTTP trigger for a non-quote (`/trigger` answers `422 INVOICE_NOT_QUOTE`) · **422** validation rejection · **502** `FISCAL_ERROR` (V-SDC rejected) · **401/403** auth/scope · **429** rate-limited (`retryAfter`).
+
+The cancel payload additionally carries `cancellationPaymentId`; cancel returns 200 (terminal in-window) or 202 (poll), 404 no matching target, 409 cancellation already in flight, 422 ambiguous `invoiceNumber` target (fail-closed — pass `transactionType`/`externalPaymentId` or a `fiscalInvoiceNumber`).
 
 ### ⚠ Timestamp conversion rule
 
@@ -134,7 +141,7 @@ examples/
   run.mjs                  # `yarn case <n|name>` dispatcher
   01-normal-sale.mjs …     # one script per canonical V-SDC case, numbered 01–14 (see below)
   14-training-refund.mjs
-  15-cancel.mjs            # extra, argv: <fiscalNumber> — counter-document cancellation
+  15-cancel.mjs            # extra: makes a sale, cancels it by invoiceNumber (counter-document)
   16-sale-mixed.mjs        # extra: multi-line, VAT15 + VAT0, split cash/card tender
   17-sale-to-location.mjs     # extra: sale signed by a specific location's cert (needs VSMS_CONNECT_LOCATION_ID)
   status-poll.mjs          # extra, argv: <invoiceId> — poll until all payment results terminal
@@ -153,7 +160,7 @@ Sequential named tests, in three groups after the health + auth probe (a 404 on 
 
 - **Group 1 — the 14 canonical V-SDC cases**, named `01.`–`14.` to match the accreditation matrix: Normal Sale, Normal Sale with buyer, Normal Refund, Normal Refund with buyer, Advance Sale (deposit chain), Advance Sale with buyer, Advance Refund (one deposit), Advance Refund with buyer, Copy Sale, Copy Refund, Proforma Sale (quote → trigger → fiscalised), Proforma Refund, Training Sale, Training Refund. Refunds reuse the source sale's invoice number and reference its fiscal number (`referentDocumentDT` omitted — the server derives it); copies send the minimal `source`-only body; advance sales POST one invoice with three deposit payments and the refund targets the first deposit with a scaled self-contained body.
 - **Group 2 — extra wire coverage**: GTIN barcodes, zero-rated VAT0, split tender, proforma → NORMAL conversion via `reference`, cancellation (counter-document), and a per-request `locationId` sale (multi-location) — the last is skipped unless `VSMS_CONNECT_LOCATION_ID` is set.
-- **Group 3 — negatives + idempotency**: stable-code assertions (`LINE_SUM_MISMATCH`, missing cashierId, `GTIN_INVALID_LENGTH`, `REFUND_REFERENT_REQUIRED`, `INVALID_COPY_BODY`, and `LOCATION_NOT_FOUND` for a body `locationId` outside the business) and the idempotency replay (byte-identical re-POST → same invoiceId + `Idempotency-Replayed: true` header).
+- **Group 3 — negatives + idempotency**: stable-code assertions (`LINE_SUM_MISMATCH`, missing cashierId, `GTIN_INVALID_LENGTH`, `INVOICE_NOT_FOUND` for a REFUND whose `invoiceNumber` matches no prior sale, `INVALID_COPY_BODY`, and `LOCATION_NOT_FOUND` for a body `locationId` outside the business) and the idempotency replay (byte-identical re-POST → same invoiceId + `Idempotency-Replayed: true` header).
 
 Non-zero exit on any failure; filter with `node --env-file=.env --test --test-name-pattern "Advance" "tests/*.test.mjs"`. Because every fiscalisation is a real round-trip, a full run takes several minutes against a tunnelled backend.
 
@@ -169,7 +176,7 @@ The client never registers businesses — like a real integrator it is _handed_ 
 
 1. Register a business in the app (licence key → account → business → certificate upload).
 2. Create an API key with scope `http` on the API Keys screen.
-3. Map the tax codes your invoices will use to V-SDC labels. `VAT15` / `VAT0` are pre-seeded, so a simple integrator can skip this. For any other code, either declare your table up front via `POST /businesses/:id/tax-rates` (see `examples/21-declare-tax-rates.mjs`) or just send an invoice with it (the code surfaces automatically), then have an admin confirm each mapping on the HTTP integration screen. A raw `taxLabel` bypasses mapping entirely.
+3. Map the tax codes your invoices will use to V-SDC labels. **Nothing is pre-seeded** — a fresh business has an empty mapping table, so even `VAT15` / `VAT0` must be mapped before an invoice carrying them can sign (a brand-new HTTP business cannot fiscalise until an admin maps at least one code). Either declare your table up front via `POST /businesses/:id/tax-rates` (see `examples/21-declare-tax-rates.mjs`) or just send an invoice with a code (it surfaces automatically as a proposal, blocking that first invoice with `MISSING_TAX_MAPPING` until mapped), then have an admin confirm each mapping on the HTTP integration screen. A raw `taxLabel` bypasses mapping entirely.
 4. Copy `.env.example` → `.env` and fill the three values.
 
 ## 4. Verification checklist

@@ -5,7 +5,7 @@
 import {
   fiscalise,
   expectFiscalised,
-  firstFiscal,
+  requireFiscal,
   printReceipt,
   vatLine,
   totalsOf,
@@ -27,17 +27,35 @@ const sale = await expectFiscalised(
     cashierId: "example-pos",
     buyer: BUYER,
     lineItems: saleLines,
+    // Own id per deposit so a refund can target one without the SDC number.
     payments: [
-      { amount: 11500, paymentType: "CARD", paymentDate: now() },
-      { amount: 11500, paymentType: "CASH", paymentDate: now() },
-      { amount: 11500, paymentType: "CASH", paymentDate: now() },
+      {
+        amount: 11500,
+        paymentType: "CARD",
+        paymentDate: now(),
+        externalPaymentId: "dep-1",
+      },
+      {
+        amount: 11500,
+        paymentType: "CASH",
+        paymentDate: now(),
+        externalPaymentId: "dep-2",
+      },
+      {
+        amount: 11500,
+        paymentType: "CASH",
+        paymentDate: now(),
+        externalPaymentId: "dep-3",
+      },
     ],
     ...totalsOf(saleLines),
   }),
   "advance buyer sale to refund",
 );
-const deposit1 = firstFiscal(sale);
+// The sale must be signed before we can refund a deposit (clear message if not).
+requireFiscal(sale, "advance buyer sale to refund");
 
+// Refund deposit 1 by our own id (TAXCORE-639) — SAME invoiceNumber, no SDC number.
 const refundLines = [vatLine("Furniture layby — refund deposit 1/3", 10000, 1)];
 printReceipt(
   await expectFiscalised(
@@ -45,7 +63,7 @@ printReceipt(
       invoiceNumber,
       invoiceType: "ADVANCE",
       transactionType: "REFUND",
-      referentDocumentNumber: deposit1.number,
+      sourceExternalPaymentId: "dep-1",
       invoiceDate: now(),
       currencyCode: "VUV",
       cashierId: "example-pos",

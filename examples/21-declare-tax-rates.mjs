@@ -8,10 +8,13 @@
 // integration screen — BEFORE the first invoice arrives, so nothing blocks.
 //
 // Nothing here is ever auto-confirmed, and a caller can never change what its
-// invoices are signed as. Re-declaring a code the admin already confirmed only
-// ever (a) flags it for re-review if the rate drifted, or (b) refreshes its
-// display name. `VAT15`/`VAT0` are pre-seeded defaults, so a simple integrator
-// can skip this entirely.
+// invoices are signed as. Re-declaring a code the admin already confirmed
+// flags it for re-review if EITHER its rate OR its display name drifted
+// (TAXCORE-646 — the mapping deactivates until an admin re-maps it).
+//
+// There are NO pre-seeded codes (TAXCORE-646): a fresh business has an empty
+// mapping table, so even `VAT15`/`VAT0` must be declared and mapped before an
+// invoice carrying them can sign. No integrator can skip this.
 //   node --env-file=.env examples/21-declare-tax-rates.mjs
 import { declareTaxRates } from "./lib.mjs";
 

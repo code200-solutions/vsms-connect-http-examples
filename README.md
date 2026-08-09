@@ -33,7 +33,8 @@ node --env-file=.env examples/17-sale-to-location.mjs           # sale signed by
 node --env-file=.env examples/18-partial-refund-by-line.mjs  # refund one line of a multi-line sale (item-level partial refund)
 node --env-file=.env examples/19-refund-different-tender.mjs # sale paid CASH, refunded to CARD
 node --env-file=.env examples/20-multiple-partial-refunds.mjs # two partial refunds against one sale
-node --env-file=.env examples/15-cancel.mjs <fiscalInvoiceNumber>
+node --env-file=.env examples/23-get-invoice.mjs <invoiceId> # retrieve one invoice by its invoiceId (single GET, prints block reasons)
+node --env-file=.env examples/15-cancel.mjs               # makes a sale, cancels it by invoiceNumber (no SDC number)
 node --env-file=.env examples/status-poll.mjs <invoiceId>    # poll a 202 (queued) invoice to terminal
 ```
 
@@ -65,7 +66,7 @@ The client never registers businesses — like a real integrator, it is _handed_
 
 1. **Register a business** in the app (licence key → account → business → certificate upload).
 2. **Create an API key** with scope `http` on the API Keys screen (plaintext shown once).
-3. **Seed HTTP tax mappings** so `taxCode: "VAT15"` / `"VAT0"` resolve — or send a raw `taxLabel` to bypass mapping.
+3. **Map the HTTP tax codes the suite uses** — `VAT15` and `VAT0`. There are no pre-seeded codes and no "Initialize"/auto-seed shortcut (TAXCORE-646): declare them via `examples/21-declare-tax-rates.mjs`, then confirm each mapping on the HTTP integration screen. Until they are mapped every sale/refund comes back **imported + blocked** (`MISSING_TAX_MAPPING`, a 201 not a 200). Or send a raw `taxLabel` to bypass mapping entirely.
 4. Copy `.env.example` → `.env` and fill the three values.
 
 ## Verification — the E2E suite
@@ -90,4 +91,3 @@ Runs the acceptance matrix against the live backend: health/auth probe, sales (p
 | `429`                                   | Rate-limited — honour `retryAfter`                                                             |
 | `502 FISCAL_ERROR`                      | V-SDC rejected the document — poll the invoice status for details                              |
 | `200` but `fiscalInvoiceNumber` is null | Still queued (or errored) — poll with `examples/status-poll.mjs`                               |
-

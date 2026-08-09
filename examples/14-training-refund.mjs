@@ -6,7 +6,7 @@
 import {
   fiscalise,
   expectFiscalised,
-  firstFiscal,
+  requireFiscal,
   printReceipt,
   vatLine,
   totalsOf,
@@ -35,6 +35,7 @@ const sale = await expectFiscalised(
   }),
   "training sale to refund",
 );
+requireFiscal(sale, "training sale to refund");
 
 const refundLines = [vatLine("Demo item — refund", 100, 1)];
 printReceipt(
@@ -44,7 +45,6 @@ printReceipt(
       invoiceType: "NORMAL",
       transactionType: "REFUND",
       training: true,
-      referentDocumentNumber: firstFiscal(sale).number,
       invoiceDate: now(),
       currencyCode: "VUV",
       cashierId: "trainee-1",

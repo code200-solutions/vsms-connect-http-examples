@@ -65,10 +65,15 @@ async function call(method, url, body) {
 export const fiscalise = (body) => call("POST", FISCALISE, body);
 export const trigger = (invoiceId) =>
   call("POST", `${FISCALISE}/${invoiceId}/trigger`);
-export const cancelDoc = (fiscalInvoiceNumber) =>
-  call("POST", `${FISCALISE}/cancel`, {
-    fiscalInvoiceNumber,
-  });
+// Cancel a fiscalised payment. Pass a string to target it by SDC
+// fiscalInvoiceNumber (back-compat), or a body object to target it by your own
+// invoiceNumber (+ optional transactionType / externalPaymentId) — TAXCORE-639.
+export const cancelDoc = (target) =>
+  call(
+    "POST",
+    `${FISCALISE}/cancel`,
+    typeof target === "string" ? { fiscalInvoiceNumber: target } : target,
+  );
 export const getStatus = (invoiceId) =>
   call("GET", `${FISCALISE}/${invoiceId}`);
 
@@ -76,8 +81,9 @@ export const getStatus = (invoiceId) =>
  * Declare the caller's tax table (the push equivalent of "list all tax rates").
  * `taxRates` is an array of `{ code, name?, rate? }`. Each not-yet-mapped code
  * becomes a PROPOSAL a business admin confirms to a V-SDC label; re-declaring a
- * rate that diverges from an already-confirmed mapping flags it for re-review.
- * Nothing is auto-confirmed. Payload: `{ proposed, driftDetected, nameRefreshed, alreadyMapped }`.
+ * rate or name that diverges from an already-confirmed mapping deactivates it
+ * for re-review. Nothing is auto-confirmed. Payload:
+ * `{ proposed, driftDetected, alreadyMapped }`.
  */
 export const declareTaxRates = (taxRates) =>
   call("POST", TAX_RATES, { taxRates });
@@ -141,16 +147,54 @@ export function firstFiscal(payload) {
     : null;
 }
 
+/**
+ * Assert the source sale is fiscalised (signed) and return its fiscal ref.
+ *
+ * A refund/copy can only build on a SIGNED sale. When auto-fiscalise is off for
+ * the HTTP connector the sale is only `imported` (no fiscal number), so instead
+ * of a cryptic `Cannot read properties of null` crash this prints a clear
+ * message and exits. (Refunds no longer need the number — they reference the
+ * sale by its `invoiceNumber` — but COPY still does, and either way this is the
+ * point to tell the user their source isn't signed.)
+ */
+export function requireFiscal(payload, label) {
+  const f = firstFiscal(payload);
+  if (!f) {
+    const status = payload?.paymentResults?.[0]?.status ?? "unknown";
+    console.error(
+      `✗ ${label}: the source sale is not fiscalised (status "${status}") — it has no SDC fiscal number.\n` +
+        `  A refund/copy needs a SIGNED sale. The likely cause is that auto-fiscalise is OFF for the\n` +
+        `  HTTP connector, so the sale was only imported. Turn auto-fiscalise on (HTTP integration\n` +
+        `  screen) or fiscalise the sale from the app, then retry.`,
+    );
+    process.exit(1);
+  }
+  return f;
+}
+
 /** epoch-ms → ISO-8601 (the form the server wants for referent/source timestamps). */
 export const msToIso = (ms) => new Date(ms).toISOString();
 
 /** Print the fiscal outcome of a payload — one line per payment + the receipt. */
 export function printReceipt(payload, label) {
-  console.log(`✓ ${label} — invoiceNumber ${payload.invoiceNumber}`);
+  // `invoiceId` is the server-issued GUID — the handle for GET /:invoiceId,
+  // POST /:invoiceId/trigger, and examples/status-poll.mjs. It is NOT the
+  // caller's invoiceNumber, and it differs from each invoicePaymentId below.
+  console.log(
+    `✓ ${label} — invoiceNumber ${payload.invoiceNumber} · invoiceId ${payload.invoiceId ?? "—"}`,
+  );
   for (const p of payload.paymentResults) {
-    console.log(
-      `  payment ${p.invoicePaymentId}: ${p.status} — ${p.fiscalInvoiceNumber ?? "—"}`,
-    );
+    let line = `  payment ${p.invoicePaymentId}: ${p.status} — ${p.fiscalInvoiceNumber ?? "—"}`;
+    // TAXCORE-645: when a payment is imported rather than fiscalised, say why —
+    // blocked (ineligible, e.g. MISSING_TAX_MAPPING) vs merely awaiting an
+    // admin's fiscalise action (eligible, no block reasons).
+    if (p.status !== "fiscalised") {
+      const reasons = p.fiscalisationBlockReasons ?? [];
+      if (reasons.length > 0) line += `  [blocked: ${reasons.join(", ")}]`;
+      else if (p.eligibleForFiscalisation === true)
+        line += "  [eligible — awaiting fiscalise]";
+    }
+    console.log(line);
   }
   const pr = payload.paymentResults[0];
   if (pr?.fiscalVerificationUrl)
@@ -165,7 +209,12 @@ export function printReceipt(payload, label) {
 const round2 = (n) => Math.round(n * 100) / 100;
 
 /**
- * A reconciled line item. taxCode "VAT15" (15%) or "VAT0" (zero-rated).
+ * A reconciled line item. `taxCode` is the semantic code you send; it must be
+ * declared (POST /tax-rates) and mapped to a V-SDC label by an admin before it
+ * will fiscalise — there are NO pre-seeded defaults. `"VAT15"` / `"VAT0"` here
+ * are just the codes these examples happen to use (declare + map them first,
+ * e.g. via examples/21-declare-tax-rates.mjs). `taxRatePercent` is the caller's
+ * own rate; the confirmed mapping's V-SDC rate is authoritative.
  * Pass `gtin` (barcode) to attach one — V-SDC accepts 8–14 chars; omit or
  * pass null for lines without a barcode (the field is left off the wire body).
  */

@@ -10,8 +10,9 @@
 // declare-up-front path; this is the "just send an invoice" fallback.
 //
 // This is the truest test for a NEW business: a fresh business has zero HTTP
-// tax mappings until an admin auto-seeds VAT15/VAT0, declares, or maps a
-// discovered code — so on day 0 even a VAT15 sale blocks until mapped.
+// tax mappings, and since TAXCORE-646 there is no auto-seed/"Initialize"
+// shortcut — an admin must declare (example 21) or let a code surface from an
+// invoice, then map it. So on day 0 even a VAT15 sale blocks until mapped.
 //
 // Pass a code as the first arg (default "TESTRATE"). `invoiceNumber` is always
 // unique so a re-run is never an idempotent replay.

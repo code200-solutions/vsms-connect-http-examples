@@ -91,14 +91,15 @@ test("02. Normal Sale with buyer identification", async () => {
 
 test("03. Normal Refund", async () => {
   const src = need(captured.normalSale, "Normal Sale");
-  // Refund reuses the sale's invoiceNumber (evolving-invoice model) and points
-  // at the sale's fiscal number; referentDocumentDT is omitted (server derives).
+  // Refund reuses the sale's invoiceNumber (evolving-invoice model). The sale
+  // has exactly one fiscalised payment, so the server resolves the source from
+  // that invoiceNumber alone — no referentDocumentNumber needed (TAXCORE-639).
+  // Test 04 keeps the explicit referent to cover the back-compatible path.
   const payload = await ensureFiscalised(
     await fiscalise(
       makeInvoice({
         invoiceNumber: src.invoiceNumber,
         transactionType: "REFUND",
-        referentDocumentNumber: src.fiscal.number,
       }),
     ),
   );
@@ -111,6 +112,8 @@ test("03. Normal Refund", async () => {
 
 test("04. Normal Refund with buyer identification", async () => {
   const src = need(captured.normalSaleBuyer, "Normal Sale with buyer");
+  // Back-compatible path: pin the source payment by its SDC fiscal number.
+  // referentDocumentNumber stays optional (TAXCORE-639) but still resolves.
   const payload = await ensureFiscalised(
     await fiscalise(
       makeInvoice({
@@ -405,10 +408,18 @@ test("negative: out-of-range GTIN → GTIN_INVALID_LENGTH", async () => {
   assert.match(errorHaystack(result.envelope), /GTIN_INVALID_LENGTH/);
 });
 
-test("negative: refund without referent → 422 REFUND_REFERENT_REQUIRED", async () => {
-  const result = await fiscalise(makeInvoice({ transactionType: "REFUND" }));
-  assert.equal(result.status, 422);
-  assert.match(errorHaystack(result.envelope), /REFUND_REFERENT_REQUIRED/);
+test("negative: refund for an unknown invoiceNumber → 404 INVOICE_NOT_FOUND", async () => {
+  // Post-TAXCORE-639 a refund resolves its source from the reused invoiceNumber,
+  // so a referent is no longer required. What IS still rejected is a refund whose
+  // invoiceNumber matches no prior sale — there is nothing to refund against.
+  const result = await fiscalise(
+    makeInvoice({
+      invoiceNumber: uniqueInvoiceNumber("E2E-NO-SOURCE"),
+      transactionType: "REFUND",
+    }),
+  );
+  assert.equal(result.status, 404);
+  assert.match(errorHaystack(result.envelope), /INVOICE_NOT_FOUND/);
 });
 
 test("negative: body locationId outside the business → 422 LOCATION_NOT_FOUND", async () => {

@@ -9,7 +9,7 @@ import {
   trigger,
   pollUntilTerminal,
   expectFiscalised,
-  firstFiscal,
+  requireFiscal,
   printReceipt,
   vatLine,
   totalsOf,
@@ -41,9 +41,10 @@ if (quote.envelope.error) {
 }
 await trigger(quote.payload.invoiceId);
 const quotePayload = await pollUntilTerminal(quote.payload.invoiceId);
-const src = firstFiscal(quotePayload);
+requireFiscal(quotePayload, "quote to refund");
 
-// (b) refund the quote
+// (b) refund the quote — SAME invoiceNumber; the server resolves the source
+// (TAXCORE-639), so no SDC fiscal number is echoed back.
 const refundLines = [vatLine("Consulting services — Q3 (refund)", 5000, 10)];
 printReceipt(
   await expectFiscalised(
@@ -51,7 +52,6 @@ printReceipt(
       invoiceNumber,
       invoiceType: "PROFORMA",
       transactionType: "REFUND",
-      referentDocumentNumber: src.number,
       invoiceDate: now(),
       currencyCode: "VUV",
       cashierId: "example-pos",

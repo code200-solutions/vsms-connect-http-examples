@@ -8,7 +8,7 @@
 import {
   fiscalise,
   expectFiscalised,
-  firstFiscal,
+  requireFiscal,
   printReceipt,
   vatLine,
   totalsOf,
@@ -40,14 +40,14 @@ const sale = await expectFiscalised(
   }),
   "sale to refund in parts",
 );
-const src = firstFiscal(sale);
+requireFiscal(sale, "sale to refund in parts");
 
-// A refund body for one returned line, pointed at the sale's fiscal number.
+// A refund body for one returned line. Reuses the sale's invoiceNumber; the
+// server resolves the source from it (TAXCORE-639), no SDC number needed.
 const refundOf = (lineItems) => ({
   invoiceNumber,
   invoiceType: "NORMAL",
   transactionType: "REFUND",
-  referentDocumentNumber: src.number,
   invoiceDate: new Date().toISOString(),
   currencyCode: "VUV",
   cashierId: "example-pos",

@@ -8,7 +8,7 @@
 import {
   fiscalise,
   expectFiscalised,
-  firstFiscal,
+  requireFiscal,
   printReceipt,
   vatLine,
   totalsOf,
@@ -29,18 +29,38 @@ const sale = await expectFiscalised(
     currencyCode: "VUV",
     cashierId: "example-pos",
     lineItems: saleLines,
+    // Give each deposit our OWN id so a refund can target one of them without
+    // the SDC fiscal number (TAXCORE-639, multi-payment disambiguation).
     payments: [
-      { amount: 11500, paymentType: "CARD", paymentDate: now() },
-      { amount: 11500, paymentType: "CASH", paymentDate: now() },
-      { amount: 11500, paymentType: "CASH", paymentDate: now() },
+      {
+        amount: 11500,
+        paymentType: "CARD",
+        paymentDate: now(),
+        externalPaymentId: "dep-1",
+      },
+      {
+        amount: 11500,
+        paymentType: "CASH",
+        paymentDate: now(),
+        externalPaymentId: "dep-2",
+      },
+      {
+        amount: 11500,
+        paymentType: "CASH",
+        paymentDate: now(),
+        externalPaymentId: "dep-3",
+      },
     ],
     ...totalsOf(saleLines),
   }),
   "advance sale to refund",
 );
-const deposit1 = firstFiscal(sale); // first fiscalised deposit
+// The sale must be signed before we can refund a deposit (clear message if not).
+requireFiscal(sale, "advance sale to refund");
 
-// (b) refund that deposit — scaled body (11,500), same invoiceNumber
+// (b) refund deposit 1 — scaled body (11,500), SAME invoiceNumber. Because the
+// invoice has several fiscalised deposits, name WHICH one via our own id
+// (`sourceExternalPaymentId`) rather than the SDC fiscal number (TAXCORE-639).
 const refundLines = [vatLine("Furniture layby — refund deposit 1/3", 10000, 1)];
 printReceipt(
   await expectFiscalised(
@@ -48,7 +68,7 @@ printReceipt(
       invoiceNumber,
       invoiceType: "ADVANCE",
       transactionType: "REFUND",
-      referentDocumentNumber: deposit1.number,
+      sourceExternalPaymentId: "dep-1",
       invoiceDate: now(),
       currencyCode: "VUV",
       cashierId: "example-pos",
