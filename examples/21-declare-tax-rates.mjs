@@ -18,11 +18,21 @@
 //   node --env-file=.env examples/21-declare-tax-rates.mjs
 import { declareTaxRates } from "./lib.mjs";
 
-// Your tax table. `name` and `rate` are optional — send what you know.
+// Your tax table. Three fields, mapped one-to-one onto the columns VSMS
+// Connect stores them under (UnmappedTaxTypes / TaxRateMappings):
+//
+//   code  → ProviderTaxType : the code your invoice lines carry (`taxCode`).
+//                             The key the admin maps to a V-SDC label. Required.
+//   name  → ProviderTaxName : a human-readable label for that code, shown next
+//                             to it in the admin panel. Optional — send a real
+//                             name distinct from the code, NOT a restatement of
+//                             the code or rate. Omit it and the column stays
+//                             null (the panel just shows the code + rate).
+//   rate  → ProviderRate    : the percent, for display only. Optional.
 const taxRates = [
-  { code: "VAT15", name: "VAT 15%", rate: 15 },
-  { code: "VAT0", name: "VAT 0% (zero-rated)", rate: 0 },
-  { code: "EXCISE", name: "Excise 10%", rate: 10 },
+  { code: "VAT15", name: "Standard-rated VAT", rate: 15 },
+  { code: "VAT0", name: "Zero-rated supplies", rate: 0 },
+  { code: "EXCISE", name: "Excise duty", rate: 10 },
 ];
 
 const { status, envelope, payload } = await declareTaxRates(taxRates);
@@ -39,7 +49,7 @@ if (envelope.error) {
 console.log(`✓ Declared ${taxRates.length} tax code(s)`);
 console.log(`  proposed (awaiting admin mapping): ${payload.proposed.length}`);
 for (const p of payload.proposed)
-  console.log(`    ${p.code} — ${p.name} @ ${p.rate ?? "?"}%`);
+  console.log(`    ${p.code} — ${p.name ?? "(no name)"} @ ${p.rate ?? "?"}%`);
 console.log(`  already mapped:      ${payload.alreadyMapped}`);
 console.log(`  drift → re-review:   ${payload.driftDetected}`);
 console.log(`  names refreshed:     ${payload.nameRefreshed}`);
