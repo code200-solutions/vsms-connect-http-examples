@@ -34,6 +34,9 @@ node --env-file=.env examples/18-partial-refund-by-line.mjs  # refund one line o
 node --env-file=.env examples/19-refund-different-tender.mjs # sale paid CASH, refunded to CARD
 node --env-file=.env examples/20-multiple-partial-refunds.mjs # two partial refunds against one sale
 node --env-file=.env examples/23-get-invoice.mjs <invoiceId> # retrieve one invoice by its invoiceId (single GET, prints block reasons)
+node --env-file=.env examples/24-retry-same-body.mjs        # POST the same body twice → cached replay (Idempotency-Replayed: true), no duplicate
+node --env-file=.env examples/25-duplicate-invoice-number.mjs     # another SALE reusing an invoiceNumber → 409 INVOICE_DUPLICATE
+node --env-file=.env examples/26-reuse-number-for-refund.mjs # REFUND on the sale's invoiceNumber → distinct linked document (new invoiceId)
 node --env-file=.env examples/15-cancel.mjs               # makes a sale, cancels it by invoiceNumber (no SDC number)
 node --env-file=.env examples/status-poll.mjs <invoiceId>    # poll a 202 (queued) invoice to terminal
 ```
@@ -49,6 +52,8 @@ yarn case --list           # list every case
 Read `examples/01-normal-sale.mjs` and `examples/lib.mjs` first — together they are the smallest complete integration and document every wire gotcha (nested response envelope, BIGINT-string timestamps, server-side idempotency) in comments. See [examples/README.md](examples/README.md) for the full index.
 
 Examples `18`–`20` cover the richer refund cases — item-level partial refunds, refunding in a different tender than the sale, and several partial refunds against one sale. See the **Refund parity** section of [examples/README.md](examples/README.md#refund-parity-1820).
+
+Examples `24`–`26` cover **reusing an `invoiceNumber`** — the question "what happens if I POST the same invoice twice?". You control `invoiceNumber` (never the server-issued `invoiceId`), and reusing it never duplicates: `24` an identical retry replays from cache (`Idempotency-Replayed: true`), `25` another SALE reusing an existing number is rejected `409 INVOICE_DUPLICATE`, and `26` a REFUND on the same number becomes a distinct linked document. See the **Idempotency** section of [examples/README.md](examples/README.md).
 
 ## Configuration
 
@@ -76,7 +81,7 @@ yarn install   # prettier only — the suite itself has zero dependencies
 yarn test      # = node --env-file=.env --test "tests/*.test.mjs"
 ```
 
-Runs the acceptance matrix against the live backend: health/auth probe, sales (plain, GTIN, zero-rated VAT0, split-tender, training), a refund chained off the sale, copies of both the sale and the refund, the proforma lifecycle (201 → trigger → convert), a per-request location sale (when `VSMS_CONNECT_LOCATION_ID` is set), cancellation, negative cases asserting stable validation codes (incl. `LOCATION_NOT_FOUND`), and the idempotency replay (identical re-POST returns the cached response + `Idempotency-Replayed: true`). Exits non-zero on any failure; filter with `node --env-file=.env --test --test-name-pattern refund "tests/*.test.mjs"`.
+Runs the acceptance matrix against the live backend: health/auth probe, sales (plain, GTIN, zero-rated VAT0, split-tender, training), a refund chained off the sale, copies of both the sale and the refund, the proforma lifecycle (201 → trigger → convert), a per-request location sale (when `VSMS_CONNECT_LOCATION_ID` is set), cancellation, negative cases asserting stable validation codes (incl. `LOCATION_NOT_FOUND` and the duplicate-invoiceNumber `409 INVOICE_DUPLICATE`), and the idempotency replay (identical re-POST returns the cached response + `Idempotency-Replayed: true`). Exits non-zero on any failure; filter with `node --env-file=.env --test --test-name-pattern refund "tests/*.test.mjs"`.
 
 ## Troubleshooting
 
@@ -86,7 +91,7 @@ Runs the acceptance matrix against the live backend: health/auth probe, sales (p
 | `401`                                                                            | API key wrong or revoked                                                                                                                                                                                                                     |
 | `403 USER_FORBIDDEN`                                                             | Key exists but has the wrong scope — it must be created with scope `http`                                                                                                                                                                    |
 | `404 INVOICE_NOT_FOUND`                                                          | Unknown invoiceId / fiscal number (on the health probe's zero-UUID GET this is the PASS)                                                                                                                                                     |
-| `409`                                                                            | Cancellation already in flight for that payment                                                                                                                                                                                              |
+| `409`                                                                            | `INVOICE_DUPLICATE` — a SALE reused an existing `invoiceNumber` (a new sale can't); or a cancellation is already in flight for that payment                                                                                                  |
 | `422` + `validationErrors[]`                                                     | Body rejected — messages carry stable `UPPER_SNAKE` codes (e.g. `LINE_SUM_MISMATCH`)                                                                                                                                                         |
 | `429`                                                                            | Rate-limited — honour `retryAfter`                                                                                                                                                                                                           |
 | `502 FISCAL_ERROR`                                                               | V-SDC rejected the document — poll the invoice status for details                                                                                                                                                                            |

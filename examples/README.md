@@ -58,6 +58,9 @@ node --env-file=.env examples/20-multiple-partial-refunds.mjs # two partial refu
 node --env-file=.env examples/21-declare-tax-rates.mjs      # declare your tax table up front → admin maps each code to a V-SDC label
 node --env-file=.env examples/22-custom-tax-code.mjs [CODE] # send an unmapped code → accepted but blocked (MISSING_TAX_MAPPING), surfaces for mapping
 node --env-file=.env examples/23-get-invoice.mjs <invoiceId> # retrieve one invoice by its invoiceId → prints status + block reasons (single GET, no polling)
+node --env-file=.env examples/24-retry-same-body.mjs        # POST the same body twice → cached replay (Idempotency-Replayed: true), no duplicate
+node --env-file=.env examples/25-duplicate-invoice-number.mjs     # another SALE reusing an invoiceNumber → 409 INVOICE_DUPLICATE
+node --env-file=.env examples/26-reuse-number-for-refund.mjs # REFUND on the sale's invoiceNumber → distinct linked document (new invoiceId)
 node --env-file=.env examples/15-cancel.mjs                 # makes a sale, cancels it by invoiceNumber (no SDC number)
 node --env-file=.env examples/status-poll.mjs <invoiceId>    # poll a 202 (queued) invoice to terminal
 ```
@@ -83,5 +86,17 @@ These three show the refund cases beyond a plain whole-invoice refund. Each crea
 ### Custom / unmapped tax code (`22`)
 
 `22-custom-tax-code.mjs` is the discovery counterpart to `21`: it sends a fresh SALE with a `taxCode` you haven't mapped (default `TESTRATE`, or pass one as the first arg). The invoice is **accepted** (proving the open vocabulary — a pre-635 backend would reject it with a `422` at the wire, which the script detects and calls out) but **blocked** with `MISSING_TAX_MAPPING` — persisted, not fiscalised — and the code appears in the admin's unmapped-tax-types panel for mapping. This is the truest check for a **new business**: a fresh business has no HTTP tax mappings at all (registration seeds only a default location + certificate, never tax mappings — and since TAXCORE-646 there is no "Initialize"/auto-seed shortcut either), so on day 0 every code blocks until an admin declares via `21` (or lets the code surface from an invoice) and then maps it on the HTTP integration screen. If the code is already mapped the script reports the sale fiscalised instead.
+
+### Idempotency / reusing an invoiceNumber (`24`–`26`)
+
+"What happens if I POST the same invoice twice?" You never supply an `invoiceId` (that's a server-issued GUID) — you control `invoiceNumber`, and the connector is built around reusing it (the evolving-invoice model). Three separate scripts, one reuse outcome each:
+
+| Script                            | Re-POST                                   | Outcome                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `24-retry-same-body.mjs`          | **Byte-identical body**                   | **Cached replay** — the 5-min HTTP idempotency cache (keyed on `invoiceNumber` + a body hash) returns the first response verbatim with header `Idempotency-Replayed: true`. Same `invoiceId`, no second effect. The body must be byte-identical — build it once with fixed timestamps; a fresh `new Date()` changes the hash and defeats the cache. |
+| `25-duplicate-invoice-number.mjs` | **Changed SALE body, same invoiceNumber** | **409 `INVOICE_DUPLICATE`** — a changed body is a cache miss, so it reaches the handler; a SALE cannot reuse a number that already identifies an invoice, and the error names the existing `invoiceId` + status. Proves only an identical body replays; anything else under an existing number is a real, state-dependent operation.                |
+| `26-reuse-number-for-refund.mjs`  | **REFUND body**                           | **Linked refund** — a distinct linked document sharing the `invoiceNumber`; the source sale is resolved automatically (no SDC number needed, TAXCORE-639). New `invoiceId`, not a duplicate.                                                                                                                                                        |
+
+Reusing an `invoiceNumber` never creates a duplicate invoice. Appending a further payment to an invoice that is still **open** (instalments/layby) is done as a single ADVANCE POST carrying several `payments[]` — see `05`/`07` — because the schema requires `sum(payments) == totalAmount` on every POST, so a partial second POST isn't a wire pattern. Payment rows are also deduped server-side on their own `externalPaymentId`, so replaying a payment can't double-insert it.
 
 Run from the repo root (the `--env-file` path is resolved from the working directory). For the full assertable matrix in one command, use `yarn test` (see [../README.md](../README.md)).

@@ -44,6 +44,7 @@ async function call(method, url, body) {
     const snippet = raw.slice(0, 120).replace(/\s+/g, " ").trim();
     return {
       status: res.status,
+      headers: res.headers,
       envelope: {
         error: true,
         status: res.status,
@@ -59,7 +60,10 @@ async function call(method, url, body) {
   }
   // Success envelopes nest the payload: { data: { object, data: <payload> } }.
   const payload = envelope.error ? null : (envelope.data?.data ?? null);
-  return { status: res.status, envelope, payload };
+  // `headers` is exposed so callers can read response-only signals the body
+  // doesn't carry — notably `Idempotency-Replayed: true` on a cached re-POST
+  // (see examples/24-idempotent-retry.mjs). Most cases ignore it.
+  return { status: res.status, headers: res.headers, envelope, payload };
 }
 
 export const fiscalise = (body) => call("POST", FISCALISE, body);

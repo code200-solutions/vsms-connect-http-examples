@@ -442,6 +442,21 @@ test("negative: COPY without source → 422 INVALID_COPY_BODY", async () => {
   assert.match(errorHaystack(result.envelope), /INVALID_COPY_BODY/);
 });
 
+test("negative: reusing an invoiceNumber for a new SALE → 409 INVOICE_DUPLICATE", async () => {
+  const invoiceNumber = uniqueInvoiceNumber("E2E-DUP");
+  const first = await fiscalise(makeInvoice({ invoiceNumber }));
+  await ensureFiscalised(first);
+
+  // A second SALE under the SAME number but a DIFFERENT body (a distinct
+  // `reference`) is a cache miss, so it reaches the handler — a fresh sale
+  // cannot reuse a number that already identifies an invoice.
+  const dup = await fiscalise(
+    makeInvoice({ invoiceNumber, reference: "e2e-duplicate-probe" }),
+  );
+  assert.equal(dup.status, 409);
+  assert.match(errorHaystack(dup.envelope), /INVOICE_DUPLICATE/);
+});
+
 test("idempotency: byte-identical re-POST replays the cached response", async () => {
   const body = makeInvoice();
   const first = await fiscalise(body);
