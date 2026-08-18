@@ -19,6 +19,8 @@ if (!BASE || !BUSINESS || !API_KEY) {
 
 const FISCALISE = `${BASE}/businesses/${BUSINESS}/fiscalise`;
 const TAX_RATES = `${BASE}/businesses/${BUSINESS}/tax-rates`;
+// `/stores`, not `/locations` — the admin Locations CRUD owns that path.
+const LOCATIONS = `${BASE}/businesses/${BUSINESS}/stores`;
 const HEADERS = {
   // No JWT and no Idempotency-Key header — the server derives an idempotency
   // key from invoiceNumber + a body hash, so a byte-identical retry replays.
@@ -91,6 +93,27 @@ export const getStatus = (invoiceId) =>
  */
 export const declareTaxRates = (taxRates) =>
   call("POST", TAX_RATES, { taxRates });
+
+/**
+ * Declare your own store codes (the push equivalent of "list all locations").
+ * `stores` is an array of `{ storeCode, name?, street?, city? }`. Each code you
+ * send that we don't already hold becomes a PROPOSED location a business admin
+ * accepts (or rejects) on the app's Locations screen — nothing is ever
+ * auto-accepted, and re-declaring never overwrites a row the admin owns.
+ * Payload: `{ declared, proposed: string[], alreadyKnown: string[] }`.
+ */
+export const declareStores = (stores) => call("POST", LOCATIONS, { stores });
+
+/**
+ * Read back what your declared (or invoice-discovered) store codes currently
+ * resolve to. Payload: `{ stores: [{ storeCode, name, status, locationId }] }`,
+ * where `status` is `'mapped'` (accepted — invoices carrying the code sign at
+ * that location), `'proposed'` (awaiting an admin), or `'rejected'`.
+ *
+ * HTTP-sourced rows only: a location an admin created by hand has no store code
+ * of yours, so it is not addressable through this surface and is not listed.
+ */
+export const listStores = () => call("GET", LOCATIONS);
 
 const IN_FLIGHT = new Set([
   "pending",
@@ -221,6 +244,10 @@ const round2 = (n) => Math.round(n * 100) / 100;
  * own rate; the confirmed mapping's V-SDC rate is authoritative.
  * Pass `gtin` (barcode) to attach one — V-SDC accepts 8–14 chars; omit or
  * pass null for lines without a barcode (the field is left off the wire body).
+ *
+ * `taxCode` takes ONE code or AN ARRAY of them, exactly as the wire field does
+ * — an item can be liable for several taxes at once (VAT plus a levy). It is
+ * passed straight through; see 27-multi-tax-line.mjs for what that means.
  */
 export function vatLine(
   description,
@@ -229,7 +256,14 @@ export function vatLine(
   taxCode = "VAT15",
   gtin = null,
 ) {
-  const rate = taxCode === "VAT0" ? 0 : 15;
+  // Local display figure ONLY — V-SDC computes the real tax from the labels,
+  // and with several taxes on a line there is no single rate to state anyway.
+  // Zero-rated only when VAT0 is the line's *only* code; a naive
+  // `taxCode === "VAT0"` would silently fall through to 15 for `["VAT0"]`,
+  // and every derived amount would inherit that wrong rate while still
+  // reconciling — a wrong number with no error.
+  const codes = Array.isArray(taxCode) ? taxCode : [taxCode];
+  const rate = codes.length === 1 && codes[0] === "VAT0" ? 0 : 15;
   const lineSubtotal = round2(unitPrice * quantity);
   const lineTaxAmount = round2((lineSubtotal * rate) / 100);
   return {
@@ -256,6 +290,20 @@ export function totalsOf(lineItems) {
 
 export const uniqueNumber = (prefix = "EX") =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+/**
+ * YOUR store code — the caller's own identifier for the shop a sale rang up in,
+ * sent on every invoice. It is NOT a VSMS Connect id, and it is deliberately a
+ * literal in the test data rather than an env var: these files exist to show
+ * the request body, and a field injected from the environment would be
+ * invisible to anyone reading them.
+ *
+ * ONE-TIME SETUP: declare it (examples/17-multi-location.mjs declares this same
+ * code) and map it to one of your business locations on the app's Generic HTTP
+ * screen → Stores tab. Until it is mapped, invoices carrying it are accepted
+ * and BLOCKED with HTTP_STORE_NOT_MAPPED — same shape as an unmapped taxCode.
+ */
+export const STORE_CODE = "STORE-PV-01";
 
 export const BUYER = {
   tin: "123456",

@@ -3,14 +3,15 @@
 // on both the advance sale and the deposit refund.
 //   node --env-file=.env examples/08-advance-refund-with-buyer.mjs
 import {
-  fiscalise,
+  BUYER,
   expectFiscalised,
-  requireFiscal,
+  fiscalise,
   printReceipt,
-  vatLine,
+  requireFiscal,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
-  BUYER,
+  vatLine,
 } from "./lib.mjs";
 
 const invoiceNumber = uniqueNumber("EX-LAY");
@@ -22,6 +23,7 @@ const sale = await expectFiscalised(
     invoiceNumber,
     invoiceType: "ADVANCE",
     transactionType: "SALE",
+    storeCode: STORE_CODE,
     invoiceDate: now(),
     currencyCode: "VUV",
     cashierId: "example-pos",

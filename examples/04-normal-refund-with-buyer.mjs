@@ -4,14 +4,15 @@
 // tax-deductible expense record.
 //   node --env-file=.env examples/04-normal-refund-with-buyer.mjs
 import {
-  fiscalise,
+  BUYER,
   expectFiscalised,
-  requireFiscal,
+  fiscalise,
   printReceipt,
-  vatLine,
+  requireFiscal,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
-  BUYER,
+  vatLine,
 } from "./lib.mjs";
 
 const invoiceNumber = uniqueNumber();
@@ -29,6 +30,7 @@ const sale = await expectFiscalised(
     invoiceNumber,
     invoiceType: "NORMAL",
     transactionType: "SALE",
+    storeCode: STORE_CODE,
     invoiceDate: new Date().toISOString(),
     currencyCode: "VUV",
     cashierId: "example-pos",

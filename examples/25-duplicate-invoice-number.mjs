@@ -22,12 +22,13 @@
 //   26 = REFUND, same number  → linked refund (reuse is valid for a refund).
 //   The lesson: reusing an invoiceNumber is only ever for a REFUND of that sale.
 import {
-  fiscalise,
   expectFiscalised,
+  fiscalise,
   printReceipt,
-  vatLine,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
+  vatLine,
 } from "./lib.mjs";
 
 const invoiceNumber = uniqueNumber("EX-DUP");
@@ -46,6 +47,7 @@ const sale = await expectFiscalised(
     invoiceNumber,
     invoiceType: "NORMAL",
     transactionType: "SALE",
+    storeCode: STORE_CODE,
     invoiceDate: new Date().toISOString(),
     currencyCode: "VUV",
     cashierId: "example-pos",
@@ -63,6 +65,7 @@ const retry = await fiscalise({
   invoiceNumber,
   invoiceType: "NORMAL",
   transactionType: "SALE",
+  storeCode: STORE_CODE,
   invoiceDate: new Date().toISOString(),
   currencyCode: "VUV",
   cashierId: "different-till",

@@ -5,13 +5,14 @@
 // the sale's fiscal number; referentDocumentDT is omitted (server derives it).
 //   node --env-file=.env examples/03-normal-refund.mjs
 import {
-  fiscalise,
   expectFiscalised,
-  requireFiscal,
+  fiscalise,
   printReceipt,
-  vatLine,
+  requireFiscal,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
+  vatLine,
 } from "./lib.mjs";
 
 const invoiceNumber = uniqueNumber();
@@ -30,6 +31,7 @@ const sale = await expectFiscalised(
     invoiceNumber,
     invoiceType: "NORMAL",
     transactionType: "SALE",
+    storeCode: STORE_CODE,
     invoiceDate: new Date().toISOString(),
     currencyCode: "VUV",
     cashierId: "example-pos",

@@ -5,7 +5,16 @@ export const BASE = process.env.VSMS_CONNECT_BACKEND_URL;
 export const BUSINESS = process.env.VSMS_CONNECT_BUSINESS_ID;
 export const API_KEY = process.env.VSMS_CONNECT_API_KEY;
 // Optional Location UUID (multi-location) — gates the "sale to a location" test.
-export const LOCATION_ID = process.env.VSMS_CONNECT_LOCATION_ID || null;
+/**
+ * The suite's own store code — the caller's identifier, not a VSMS Connect id.
+ *
+ * A literal rather than an env var, matching examples/lib.mjs: the fixtures
+ * exist to show the request body, and a field injected from the environment
+ * would be invisible to anyone reading them. Declare and map it once on the
+ * app's Stores tab, or these fresh sales come back blocked with
+ * HTTP_STORE_NOT_MAPPED.
+ */
+export const STORE_CODE = "STORE-PV-01";
 export const HTTP_TIMEOUT_MS = Number(
   process.env.VSMS_CONNECT_HTTP_TIMEOUT_MS ?? 60_000,
 );
@@ -275,7 +284,15 @@ export function makeInvoice(opts = {}) {
     totalAmount,
   };
   if (opts.training) invoice.training = true;
+  // Exactly one of the two selectors, and only on a fresh SALE: a COPY
+  // forbids both (422 INVALID_COPY_BODY) and a refund follows its source.
+  // An explicit locationId wins — that is what the escape-hatch test asserts.
   if (opts.locationId) invoice.locationId = opts.locationId;
+  else if (
+    (opts.invoiceType ?? "NORMAL") !== "COPY" &&
+    (opts.transactionType ?? "SALE") === "SALE"
+  )
+    invoice.storeCode = STORE_CODE;
   if (opts.reference) invoice.reference = opts.reference;
   if (opts.referentDocumentNumber)
     invoice.referentDocumentNumber = opts.referentDocumentNumber;

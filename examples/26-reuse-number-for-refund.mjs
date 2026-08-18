@@ -20,13 +20,14 @@
 //   that reusing the number yields a NEW invoiceId (a linked document), never a
 //   duplicate or a mutation of the sale.
 import {
-  fiscalise,
   expectFiscalised,
-  requireFiscal,
+  fiscalise,
   printReceipt,
-  vatLine,
+  requireFiscal,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
+  vatLine,
 } from "./lib.mjs";
 
 const invoiceNumber = uniqueNumber("EX-REUSE");
@@ -45,6 +46,7 @@ const sale = await expectFiscalised(
     invoiceNumber,
     invoiceType: "NORMAL",
     transactionType: "SALE",
+    storeCode: STORE_CODE,
     invoiceDate: new Date().toISOString(),
     currencyCode: "VUV",
     cashierId: "example-pos",

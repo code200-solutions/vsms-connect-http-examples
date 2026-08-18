@@ -5,15 +5,16 @@
 // quote's fiscal number.
 //   node --env-file=.env examples/12-proforma-refund.mjs
 import {
-  fiscalise,
-  trigger,
-  pollUntilTerminal,
   expectFiscalised,
-  requireFiscal,
+  fiscalise,
+  pollUntilTerminal,
   printReceipt,
-  vatLine,
+  requireFiscal,
+  STORE_CODE,
   totalsOf,
+  trigger,
   uniqueNumber,
+  vatLine,
 } from "./lib.mjs";
 
 const invoiceNumber = uniqueNumber("EX-QUOTE");
@@ -28,6 +29,7 @@ const quote = await fiscalise({
   invoiceNumber,
   invoiceType: "PROFORMA",
   transactionType: "SALE",
+  storeCode: STORE_CODE,
   invoiceDate: now(),
   currencyCode: "VUV",
   cashierId: "example-pos",

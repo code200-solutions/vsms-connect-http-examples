@@ -29,7 +29,7 @@ node --env-file=.env examples/14-training-refund.mjs
 
 # Extras
 node --env-file=.env examples/16-sale-mixed.mjs              # multi-line, VAT15 + VAT0, split cash/card tender
-node --env-file=.env examples/17-sale-to-location.mjs           # sale signed by a specific location's cert (needs VSMS_CONNECT_LOCATION_ID)
+node --env-file=.env examples/17-multi-location.mjs         # declare your own store codes → sale by storeCode (no GUID anywhere)
 node --env-file=.env examples/18-partial-refund-by-line.mjs  # refund one line of a multi-line sale (item-level partial refund)
 node --env-file=.env examples/19-refund-different-tender.mjs # sale paid CASH, refunded to CARD
 node --env-file=.env examples/20-multiple-partial-refunds.mjs # two partial refunds against one sale
@@ -37,6 +37,7 @@ node --env-file=.env examples/23-get-invoice.mjs <invoiceId> # retrieve one invo
 node --env-file=.env examples/24-retry-same-body.mjs        # POST the same body twice → cached replay (Idempotency-Replayed: true), no duplicate
 node --env-file=.env examples/25-duplicate-invoice-number.mjs     # another SALE reusing an invoiceNumber → 409 INVOICE_DUPLICATE
 node --env-file=.env examples/26-reuse-number-for-refund.mjs # REFUND on the sale's invoiceNumber → distinct linked document (new invoiceId)
+node --env-file=.env examples/27-multi-tax-line.mjs      # ONE line item bearing several taxes (taxCode as an array)
 node --env-file=.env examples/15-cancel.mjs               # makes a sale, cancels it by invoiceNumber (no SDC number)
 node --env-file=.env examples/status-poll.mjs <invoiceId>    # poll a 202 (queued) invoice to terminal
 ```
@@ -53,6 +54,8 @@ Read `examples/01-normal-sale.mjs` and `examples/lib.mjs` first — together the
 
 Examples `18`–`20` cover the richer refund cases — item-level partial refunds, refunding in a different tender than the sale, and several partial refunds against one sale. See the **Refund parity** section of [examples/README.md](examples/README.md#refund-parity-1820).
 
+Example `17` covers **multi-location**: you declare your **own** store codes (`POST /businesses/:businessId/stores`), read back what they resolve to (`GET` the same path), and then fiscalise with `storeCode` on the body — so a multi-location integrator never holds a VSMS Connect `locationId` GUID against its stores. It also shows the two states worth meeting before production: an **undeclared** code is proposed rather than rejected, but the sale is **blocked** (`HTTP_STORE_NOT_MAPPED`) rather than signed at the API key's location — routing fails closed, and the admin's re-sync releases it once the store is mapped to a business location; and sending `storeCode` **and** `locationId` together is a `422 LOCATION_SELECTOR_EXCLUSIVE`. Every other example sends `storeCode` too, as a literal fixture — that is what a real integrator does. See the **Multi-location** section of [examples/README.md](examples/README.md).
+
 Examples `24`–`26` cover **reusing an `invoiceNumber`** — the question "what happens if I POST the same invoice twice?". You control `invoiceNumber` (never the server-issued `invoiceId`), and reusing it never duplicates: `24` an identical retry replays from cache (`Idempotency-Replayed: true`), `25` another SALE reusing an existing number is rejected `409 INVOICE_DUPLICATE`, and `26` a REFUND on the same number becomes a distinct linked document. See the **Idempotency** section of [examples/README.md](examples/README.md).
 
 ## Configuration
@@ -62,7 +65,6 @@ Examples `24`–`26` cover **reusing an `invoiceNumber`** — the question "what
 | `VSMS_CONNECT_BACKEND_URL`     | Backend URL **up to and including** `/api/v1`, e.g. `http://localhost:3000/api/v1` |
 | `VSMS_CONNECT_BUSINESS_ID`     | Business UUID from the app                                                         |
 | `VSMS_CONNECT_API_KEY`         | API key with scope `http` (App → API Keys, plaintext shown once)                   |
-| `VSMS_CONNECT_LOCATION_ID`     | Optional — a Location UUID for the business; enables the location example + test   |
 | `VSMS_CONNECT_HTTP_TIMEOUT_MS` | Optional, tests only — client fetch timeout (default 60000)                        |
 
 ## Prerequisites for live testing
@@ -72,7 +74,8 @@ The client never registers businesses — like a real integrator, it is _handed_
 1. **Register a business** in the app (licence key → account → business → certificate upload).
 2. **Create an API key** with scope `http` on the API Keys screen (plaintext shown once).
 3. **Map the HTTP tax codes the suite uses** — `VAT15` and `VAT0`. There are no pre-seeded codes and no "Initialize"/auto-seed shortcut (TAXCORE-646): declare them via `examples/21-declare-tax-rates.mjs`, then confirm each mapping on the HTTP integration screen. Until they are mapped every sale/refund comes back **imported + blocked** (`MISSING_TAX_MAPPING`, a 201 not a 200). Or send a raw `taxLabel` to bypass mapping entirely.
-4. Copy `.env.example` → `.env` and fill the three values.
+4. **Map the store code the suite uses** — `STORE-PV-01`. Every fresh sale in `examples/` and `tests/` carries it as `storeCode` (a literal in the fixtures, not an env var — see `examples/lib.mjs`), because that is what a real integrator sends. Declare it with `examples/17-multi-location.mjs`, then map it to one of your business locations on the Generic HTTP screen → **Stores** tab. Until it is mapped, sales come back **accepted + blocked** with `HTTP_STORE_NOT_MAPPED` — the same shape as an unmapped `taxCode`.
+5. Copy `.env.example` → `.env` and fill the three values.
 
 ## Verification — the E2E suite
 
@@ -81,7 +84,7 @@ yarn install   # prettier only — the suite itself has zero dependencies
 yarn test      # = node --env-file=.env --test "tests/*.test.mjs"
 ```
 
-Runs the acceptance matrix against the live backend: health/auth probe, sales (plain, GTIN, zero-rated VAT0, split-tender, training), a refund chained off the sale, copies of both the sale and the refund, the proforma lifecycle (201 → trigger → convert), a per-request location sale (when `VSMS_CONNECT_LOCATION_ID` is set), cancellation, negative cases asserting stable validation codes (incl. `LOCATION_NOT_FOUND` and the duplicate-invoiceNumber `409 INVOICE_DUPLICATE`), and the idempotency replay (identical re-POST returns the cached response + `Idempotency-Replayed: true`). Exits non-zero on any failure; filter with `node --env-file=.env --test --test-name-pattern refund "tests/*.test.mjs"`.
+Runs the acceptance matrix against the live backend: health/auth probe, sales (plain, GTIN, zero-rated VAT0, split-tender, training), a refund chained off the sale, copies of both the sale and the refund, the proforma lifecycle (201 → trigger → convert), an unmapped store code blocking rather than signing elsewhere, cancellation, negative cases asserting stable validation codes (incl. `LOCATION_NOT_FOUND` and the duplicate-invoiceNumber `409 INVOICE_DUPLICATE`), and the idempotency replay (identical re-POST returns the cached response + `Idempotency-Replayed: true`). Exits non-zero on any failure; filter with `node --env-file=.env --test --test-name-pattern refund "tests/*.test.mjs"`.
 
 ## Troubleshooting
 

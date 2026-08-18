@@ -5,12 +5,13 @@
 // Each deposit gets its own fiscal number (see paymentResults[]).
 //   node --env-file=.env examples/05-advance-sale.mjs
 import {
-  fiscalise,
   expectFiscalised,
+  fiscalise,
   printReceipt,
-  vatLine,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
+  vatLine,
 } from "./lib.mjs";
 
 // 30,000 net + 4,500 tax = 34,500 total, paid as 3 deposits of 11,500.
@@ -20,6 +21,7 @@ const body = {
   invoiceNumber: uniqueNumber("EX-LAY"),
   invoiceType: "ADVANCE",
   transactionType: "SALE",
+  storeCode: STORE_CODE,
   invoiceDate: now(),
   currencyCode: "VUV",
   cashierId: "example-pos",

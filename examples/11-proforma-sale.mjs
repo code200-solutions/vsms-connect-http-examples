@@ -5,14 +5,15 @@
 // polls until it has a fiscal number.
 //   node --env-file=.env examples/11-proforma-sale.mjs
 import {
-  fiscalise,
-  trigger,
-  pollUntilTerminal,
   firstFiscal,
+  fiscalise,
+  pollUntilTerminal,
   printReceipt,
-  vatLine,
+  STORE_CODE,
   totalsOf,
+  trigger,
   uniqueNumber,
+  vatLine,
 } from "./lib.mjs";
 
 const lineItems = [vatLine("Consulting services — Q3", 5000, 10)];
@@ -20,6 +21,7 @@ const quote = await fiscalise({
   invoiceNumber: uniqueNumber("EX-QUOTE"),
   invoiceType: "PROFORMA",
   transactionType: "SALE",
+  storeCode: STORE_CODE,
   invoiceDate: new Date().toISOString(),
   currencyCode: "VUV",
   cashierId: "example-pos",

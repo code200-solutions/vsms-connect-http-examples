@@ -20,12 +20,13 @@
 //   reuse the same object — calling new Date() again changes the hash, and the
 //   retry would be treated as a brand-new request instead of a replay.
 import {
-  fiscalise,
   expectFiscalised,
+  fiscalise,
   printReceipt,
-  vatLine,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
+  vatLine,
 } from "./lib.mjs";
 
 const lineItems = [vatLine("Coffee 250g", 500, 2)];
@@ -34,6 +35,7 @@ const body = {
   invoiceNumber: uniqueNumber("EX-RETRY"),
   invoiceType: "NORMAL",
   transactionType: "SALE",
+  storeCode: STORE_CODE,
   invoiceDate: nowIso,
   currencyCode: "VUV",
   cashierId: "example-pos",

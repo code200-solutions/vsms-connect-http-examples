@@ -17,7 +17,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   BASE,
-  LOCATION_ID,
   cancel,
   ensureFiscalised,
   errorHaystack,
@@ -370,17 +369,23 @@ test("extra: cancellation issues a counter-document", async () => {
   assert.ok(result.payload.cancellationPaymentId);
 });
 
-test(
-  "extra: sale to a specific location (multi-location)",
-  { skip: LOCATION_ID ? false : "set VSMS_CONNECT_LOCATION_ID to run" },
-  async () => {
-    // The body locationId picks which location's certificate signs the sale.
-    const payload = await ensureFiscalised(
-      await fiscalise(makeInvoice({ locationId: LOCATION_ID })),
+test("extra: an UNMAPPED store code blocks, never signs elsewhere", async () => {
+  // Routing fails closed (TAXCORE-718). A code no admin has mapped cannot
+  // select a certificate, so the sale is accepted and BLOCKED rather than
+  // quietly signed at some other location. No env var: the code below is
+  // deliberately one nobody would ever map.
+  const result = await fiscalise(
+    makeInvoice({ storeCode: "E2E-NEVER-MAPPED" }),
+  );
+  assert.equal(result.status, 201, "a blocked invoice is a 201, not an error");
+  for (const p of result.payload.paymentResults) {
+    assert.equal(p.eligibleForFiscalisation, false);
+    assert.ok(
+      (p.fiscalisationBlockReasons ?? []).includes("HTTP_STORE_NOT_MAPPED"),
+      `expected HTTP_STORE_NOT_MAPPED, got ${JSON.stringify(p.fiscalisationBlockReasons)}`,
     );
-    assert.ok(firstFiscal(payload)?.number, "location sale did not fiscalise");
-  },
-);
+  }
+});
 
 // ── Group 3: negative + idempotency checks ──────────────────────────────────
 

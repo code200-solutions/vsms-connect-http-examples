@@ -4,13 +4,14 @@
 // makes the training sale first, then refunds it.
 //   node --env-file=.env examples/14-training-refund.mjs
 import {
-  fiscalise,
   expectFiscalised,
-  requireFiscal,
+  fiscalise,
   printReceipt,
-  vatLine,
+  requireFiscal,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
+  vatLine,
 } from "./lib.mjs";
 
 const invoiceNumber = uniqueNumber("EX-TRAIN");
@@ -25,6 +26,7 @@ const sale = await expectFiscalised(
     invoiceNumber,
     invoiceType: "NORMAL",
     transactionType: "SALE",
+    storeCode: STORE_CODE,
     training: true,
     invoiceDate: now(),
     currencyCode: "VUV",

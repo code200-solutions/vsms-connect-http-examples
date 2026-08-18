@@ -5,13 +5,14 @@
 // POS sends; the receipt's tax table shows one row per rate.
 //   node --env-file=.env examples/sale-mixed.mjs
 import {
-  fiscalise,
+  BUYER,
   expectFiscalised,
+  fiscalise,
   printReceipt,
-  vatLine,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
-  BUYER,
+  vatLine,
 } from "./lib.mjs";
 
 // Each line carries its own tax category. Totals sum across both.
@@ -26,6 +27,7 @@ const body = {
   invoiceNumber: uniqueNumber("EX-MIX"),
   invoiceType: "NORMAL",
   transactionType: "SALE",
+  storeCode: STORE_CODE,
   invoiceDate: new Date().toISOString(),
   currencyCode: "VUV",
   cashierId: "example-pos",

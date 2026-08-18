@@ -4,13 +4,14 @@
 // receives an auto-emailed receipt copy (when the business has auto-email on).
 //   node --env-file=.env examples/02-normal-sale-with-buyer.mjs
 import {
-  fiscalise,
+  BUYER,
   expectFiscalised,
+  fiscalise,
   printReceipt,
-  vatLine,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
-  BUYER,
+  vatLine,
 } from "./lib.mjs";
 
 const lineItems = [vatLine("Office supplies bundle", 5000, 1)];
@@ -18,6 +19,7 @@ const body = {
   invoiceNumber: uniqueNumber(),
   invoiceType: "NORMAL",
   transactionType: "SALE",
+  storeCode: STORE_CODE,
   invoiceDate: new Date().toISOString(),
   currencyCode: "VUV",
   cashierId: "example-pos",

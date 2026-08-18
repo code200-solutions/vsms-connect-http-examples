@@ -17,7 +17,13 @@
 // Pass a code as the first arg (default "TESTRATE"). `invoiceNumber` is always
 // unique so a re-run is never an idempotent replay.
 //   node --env-file=.env examples/22-custom-tax-code.mjs [TAXCODE]
-import { fiscalise, vatLine, totalsOf, uniqueNumber } from "./lib.mjs";
+import {
+  fiscalise,
+  STORE_CODE,
+  totalsOf,
+  uniqueNumber,
+  vatLine,
+} from "./lib.mjs";
 
 const taxCode = process.argv[2] || "TESTRATE";
 
@@ -28,6 +34,7 @@ const body = {
   invoiceNumber: uniqueNumber(),
   invoiceType: "NORMAL",
   transactionType: "SALE",
+  storeCode: STORE_CODE,
   invoiceDate: new Date().toISOString(),
   currencyCode: "VUV",
   cashierId: "example-pos",

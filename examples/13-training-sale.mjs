@@ -4,12 +4,13 @@
 // receipt is a training document (no real-rate fiscal record).
 //   node --env-file=.env examples/13-training-sale.mjs
 import {
-  fiscalise,
   expectFiscalised,
+  fiscalise,
   printReceipt,
-  vatLine,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
+  vatLine,
 } from "./lib.mjs";
 
 const lineItems = [vatLine("Demo item", 100, 1)];
@@ -17,6 +18,7 @@ const body = {
   invoiceNumber: uniqueNumber("EX-TRAIN"),
   invoiceType: "NORMAL",
   transactionType: "SALE",
+  storeCode: STORE_CODE,
   training: true, // ← forces TRAINING server-side
   invoiceDate: new Date().toISOString(),
   currencyCode: "VUV",

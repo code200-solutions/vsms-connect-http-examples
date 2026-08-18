@@ -3,13 +3,14 @@
 // a buyer block.
 //   node --env-file=.env examples/06-advance-sale-with-buyer.mjs
 import {
-  fiscalise,
+  BUYER,
   expectFiscalised,
+  fiscalise,
   printReceipt,
-  vatLine,
+  STORE_CODE,
   totalsOf,
   uniqueNumber,
-  BUYER,
+  vatLine,
 } from "./lib.mjs";
 
 const lineItems = [vatLine("Furniture layby — sofa set", 10000, 3)];
@@ -18,6 +19,7 @@ const body = {
   invoiceNumber: uniqueNumber("EX-LAY"),
   invoiceType: "ADVANCE",
   transactionType: "SALE",
+  storeCode: STORE_CODE,
   invoiceDate: now(),
   currencyCode: "VUV",
   cashierId: "example-pos",
