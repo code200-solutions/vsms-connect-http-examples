@@ -26,6 +26,12 @@ const HEADERS = {
   // key from invoiceNumber + a body hash, so a byte-identical retry replays.
   Authorization: `ApiKey ${API_KEY}`,
   "Content-Type": "application/json",
+  // Correct for any API client, and load-bearing behind a tunnel: ngrok's free
+  // tier answers GETs that do not ask for JSON with an HTML browser-warning
+  // page. POSTs pass through, so without this every GET (status polling,
+  // 23-get-invoice, reading back declared stores) fails with
+  // NON_JSON_RESPONSE while writes look perfectly healthy.
+  Accept: "application/json",
 };
 
 async function call(method, url, body) {
@@ -124,8 +130,59 @@ const IN_FLIGHT = new Set([
 ]);
 
 /** Poll a (usually 202-queued) invoice until every payment result is terminal. */
+/**
+ * Ends the script with a message and a non-zero status, WITHOUT `process.exit`.
+ *
+ * `process.exit()` tears the process down while Node's fetch keep-alive socket
+ * is still open, which on Windows aborts inside libuv:
+ *   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\win\async.c
+ * — a crash dump after a clean message, and a meaningless exit code (127).
+ *
+ * Setting `exitCode` and throwing lets the socket close on its own and still
+ * exits non-zero. The stack is blanked because the message is the whole point;
+ * a trace through the poller tells the reader nothing they need.
+ */
+export function failWith(message) {
+  if (message) console.error(message);
+  process.exitCode = 1;
+  throw Object.assign(new Error("VSMS_CLEAN_EXIT"), { __cleanExit: true });
+}
+
+// The throw above unwinds the script (so no caller carries on with a payload
+// that never fiscalised) but must not print anything: `failWith` has already
+// said everything useful, and Node's default handler would append a stack
+// through the poller that tells the reader nothing. Real errors still print.
+const onFatal = (err) => {
+  if (!err?.__cleanExit) console.error(err?.stack ?? String(err));
+  process.exitCode = 1;
+};
+process.on("uncaughtException", onFatal);
+process.on("unhandledRejection", onFatal);
+
+/**
+ * What an admin has to DO about each block reason — the poller prints these
+ * rather than only echoing the code, because the code alone does not tell an
+ * integrator whose problem it is (some are theirs, most are the merchant's).
+ */
+const BLOCK_REASON_FIXES = {
+  MISSING_TAX_MAPPING:
+    "a taxCode on this invoice is not mapped to a V-SDC label yet. Declare it (examples/21-declare-tax-rates.mjs), then have an admin map it on the Generic HTTP screen.",
+  HTTP_STORE_NOT_MAPPED:
+    "this invoice's storeCode is not mapped to a location. Map it on the Generic HTTP screen -> Stores tab (declare it first with examples/17-multi-location.mjs).",
+  HTTP_STORE_LOCATION_NO_CERTIFICATE:
+    "the store IS mapped, but its location holds no active certificate. Upload one for that location.",
+  HTTP_STORE_CODE_REQUIRED:
+    "no storeCode was sent and this business has several certified locations, so there is no way to tell which should sign. Send storeCode on every invoice.",
+  REFERENT_NOT_FISCALISED:
+    "the document this one refers to has not been signed yet. Fiscalise the source first.",
+};
+
 export async function pollUntilTerminal(invoiceId, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
+  // Consecutive polls seeing "imported, eligible, never dispatched". A couple
+  // of grace polls absorb the gap between a trigger returning and the job row
+  // appearing; beyond that it is a standing state, not a slow one.
+  let idlePolls = 0;
   for (;;) {
     const { envelope, payload } = await getStatus(invoiceId);
     if (envelope.error) throw new Error(`status GET failed: ${envelope.code}`);
@@ -137,6 +194,77 @@ export async function pollUntilTerminal(invoiceId, timeoutMs = 120_000) {
     ) {
       return payload;
     }
+
+    // A BLOCKED payment is not in flight — it is parked until an admin fixes
+    // something, so no amount of waiting will move it. Without this check the
+    // loop burns the whole timeout and then reports "not terminal", which
+    // describes the symptom and hides the cause. Stop on the first poll
+    // instead and say what needs fixing.
+    //
+    // `eligibleForFiscalisation === false` is what separates blocked from
+    // merely queued: a PROFORMA awaiting its explicit trigger is `imported`
+    // too, but eligible, so it correctly keeps polling.
+    const blocked = payload.paymentResults.filter(
+      (p) => p.eligibleForFiscalisation === false,
+    );
+    if (blocked.length > 0) {
+      const reasons = [
+        ...new Set(blocked.flatMap((p) => p.fiscalisationBlockReasons ?? [])),
+      ];
+      console.error(
+        `
+✗ Invoice ${invoiceId} is BLOCKED — it will never fiscalise as-is, so this is not worth waiting for.` +
+          `
+  Reason(s): ${reasons.join(", ") || "(none reported)"}
+`,
+      );
+      for (const r of reasons) {
+        const fix = BLOCK_REASON_FIXES[r];
+        if (fix)
+          console.error(`  ${r}
+    → ${fix}
+`);
+      }
+      failWith(
+        `  Once fixed, an admin's "Re-sync blocked invoices" releases this one in place —
+` + `  you do not need to re-send it.`,
+      );
+    }
+
+    // Nothing was ever dispatched: every payment is `imported`, none is
+    // blocked, and no fiscalisation job exists. Polling cannot change that —
+    // something has to ASK for this invoice to be signed. Two ways to get here:
+    //   * a PROFORMA, which is never auto-dispatched. It fiscalises only on an
+    //     explicit POST /fiscalise/:invoiceId/trigger (11-proforma-sale.mjs).
+    //   * auto-fiscalise is off for this connector, so an admin fiscalises it
+    //     from the app.
+    // Either way, waiting out the timeout and reporting "not terminal" would
+    // describe the symptom and hide both causes.
+    const allImported = payload.paymentResults.every(
+      (p) => String(p.status).toLowerCase() === "imported",
+    );
+    if (allImported && !payload.jobId) {
+      if (++idlePolls >= 3) {
+        failWith(
+          `
+✗ Invoice ${invoiceId} is imported and NOT blocked, but no fiscalisation job exists —
+` +
+            `  nothing is going to move it, so waiting will not help.
+
+` +
+            `  If this is a PROFORMA quote: it is never auto-dispatched. Trigger it with
+` +
+            `    POST /businesses/<businessId>/fiscalise/${invoiceId}/trigger
+` +
+            `  Otherwise auto-fiscalise is probably off for this connector — fiscalise it
+` +
+            `  from the app, or turn the setting on.`,
+        );
+      }
+    } else {
+      idlePolls = 0;
+    }
+
     if (Date.now() >= deadline)
       throw new Error(`invoice ${invoiceId} not terminal after ${timeoutMs}ms`);
     await new Promise((r) => setTimeout(r, 2000));
@@ -154,7 +282,7 @@ export async function expectFiscalised(result, label) {
     );
     for (const v of result.envelope.validationErrors ?? [])
       console.error(`    ${v.field}: ${v.message}`);
-    process.exit(1);
+    failWith("");
   }
   let payload = result.payload;
   if (result.status === 202 && payload.invoiceId) {
@@ -255,6 +383,7 @@ export function vatLine(
   quantity = 1,
   taxCode = "VAT15",
   gtin = null,
+  ratePercent = null,
 ) {
   // Local display figure ONLY — V-SDC computes the real tax from the labels,
   // and with several taxes on a line there is no single rate to state anyway.
@@ -262,8 +391,14 @@ export function vatLine(
   // `taxCode === "VAT0"` would silently fall through to 15 for `["VAT0"]`,
   // and every derived amount would inherit that wrong rate while still
   // reconciling — a wrong number with no error.
+  // `ratePercent` overrides the guess below. A line bearing SEVERAL taxes has
+  // to state its COMBINED rate: there is one `taxRatePercent` per line however
+  // many taxes apply, so leaving it at 15 while a second tax is also charged
+  // understates the line and — because an unmapped code is recorded at this
+  // rate — invites an admin to map that second code to a 15% label.
   const codes = Array.isArray(taxCode) ? taxCode : [taxCode];
-  const rate = codes.length === 1 && codes[0] === "VAT0" ? 0 : 15;
+  const rate =
+    ratePercent ?? (codes.length === 1 && codes[0] === "VAT0" ? 0 : 15);
   const lineSubtotal = round2(unitPrice * quantity);
   const lineTaxAmount = round2((lineSubtotal * rate) / 100);
   return {
