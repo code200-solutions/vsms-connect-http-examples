@@ -2,6 +2,8 @@
 
 Runnable scripts for the VSMS Connect **generic HTTP connector**. Files `01`–`14` are the **14 canonical V-SDC cases** (one per accreditation case); the rest are extras. Each case script is complete and self-standing — the refund/copy/proforma-refund scripts create their own prerequisite sale inline, so any file runs on its own with no argument juggling.
 
+> **Everything in this folder is the CASH-BASIS set.** A business that accounts for VAT on **invoice basis** declares the whole supply when the invoice is issued rather than when it is paid, which changes what several of these calls do. That set lives in [`invoice-basis/`](invoice-basis/) — four scripts, its own README, and a second business to run them against. Start here; go there once you know which basis your merchant is on.
+
 They share [`lib.mjs`](lib.mjs) (config, the `fetch` call, polling, receipt printing, and line/total builders) so each case file focuses on its **request body** — the part you'd adapt. The full wire contract is in [../docs/SPEC.md](../docs/SPEC.md) §1.
 
 ## Setup
@@ -66,6 +68,17 @@ node --env-file=.env examples/15-cancel.mjs                 # makes a sale, canc
 node --env-file=.env examples/status-poll.mjs <invoiceId>    # poll a 202 (queued) invoice to terminal
 ```
 
+## Invoice basis
+
+```bash
+yarn case ib-01   # at-issue sale — a credit sale with NO payments fiscalises in full
+yarn case ib-02   # refund an at-issue sale
+yarn case ib-03   # void (cancel) one
+yarn case ib-04   # edit one — increase → chained sale, decrease → partial refund
+```
+
+These need a **second business**, registered on invoice basis (the basis is fixed at registration and is not a request field). See [`invoice-basis/README.md`](invoice-basis/README.md) for the setup and for the full cash-vs-invoice table.
+
 ### Refund parity (`18`–`20`)
 
 These three show the refund cases beyond a plain whole-invoice refund. Each creates its own sale inline, then refunds against that sale's fiscal number.
@@ -107,6 +120,8 @@ These three show the refund cases beyond a plain whole-invoice refund. Each crea
 | `26-reuse-number-for-refund.mjs`  | **REFUND body**                           | **Linked refund** — a distinct linked document sharing the `invoiceNumber`; the source sale is resolved automatically (no SDC number needed, TAXCORE-639). New `invoiceId`, not a duplicate.                                                                                                                                                        |
 
 Reusing an `invoiceNumber` never creates a duplicate invoice. Appending a further payment to an invoice that is still **open** (instalments/layby) is done as a single ADVANCE POST carrying several `payments[]` — see `05`/`07` — because the schema requires `sum(payments) == totalAmount` on every POST, so a partial second POST isn't a wire pattern. Payment rows are also deduped server-side on their own `externalPaymentId`, so replaying a payment can't double-insert it.
+
+**On invoice basis this is a different story entirely.** There the totals are not locked — a re-push whose total moved declares the difference as a new document — and `ADVANCE` is rewritten to `NORMAL`, so there is no deposit chain to append to. See [`invoice-basis/ib-04-edit.mjs`](invoice-basis/ib-04-edit.mjs).
 
 ### Multi-location (`17`)
 

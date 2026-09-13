@@ -17,9 +17,24 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const examplesDir = dirname(fileURLToPath(import.meta.url));
-const scripts = readdirSync(examplesDir)
-  .filter((f) => f.endsWith(".mjs") && f !== "lib.mjs" && f !== "run.mjs")
-  .sort();
+
+// One level deep, so the invoice-basis set (examples/invoice-basis/*.mjs) is
+// dispatchable by the same `yarn case <n|name>` as everything else. Entries
+// from a subfolder keep their folder prefix ("invoice-basis/ib-01-…"), which is
+// what makes `yarn case ib-01` unambiguous against the flat cash-basis files.
+const collect = (dir, prefix = "") =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory())
+      return prefix
+        ? [] // only one level — a deeper tree is not a case layout
+        : collect(join(dir, entry.name), `${entry.name}/`);
+    if (!entry.name.endsWith(".mjs")) return [];
+    if (prefix === "" && (entry.name === "lib.mjs" || entry.name === "run.mjs"))
+      return [];
+    return [`${prefix}${entry.name}`];
+  });
+
+const scripts = collect(examplesDir).sort();
 
 const [selector, ...rest] = process.argv.slice(2);
 
@@ -36,8 +51,13 @@ if (!selector || selector === "--list" || selector === "-l") {
 // Numeric selector → match the NN- prefix (zero-padded); otherwise substring.
 const isNumeric = /^\d{1,2}$/.test(selector);
 const key = isNumeric ? selector.padStart(2, "0") : selector.toLowerCase();
+// A numeric selector matches the NN- prefix of the FILE NAME, not of the path —
+// so `yarn case 1` is the cash-basis 01, and the invoice-basis set is reached
+// by name (`yarn case ib-01`), never by a bare number.
 const matches = scripts.filter((f) =>
-  isNumeric ? f.startsWith(`${key}-`) : f.toLowerCase().includes(key),
+  isNumeric
+    ? f.slice(f.lastIndexOf("/") + 1).startsWith(`${key}-`)
+    : f.toLowerCase().includes(key),
 );
 
 if (matches.length === 0) {
