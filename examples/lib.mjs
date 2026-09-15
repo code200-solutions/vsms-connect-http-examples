@@ -17,14 +17,48 @@ if (!BASE || !BUSINESS || !API_KEY) {
   process.exit(2);
 }
 
-const FISCALISE = `${BASE}/businesses/${BUSINESS}/fiscalise`;
-const TAX_RATES = `${BASE}/businesses/${BUSINESS}/tax-rates`;
+// A "client" here is just the credential pair a call is made with: WHICH
+// business, and which API key. Every example outside examples/invoice-basis/
+// uses exactly one, so it is the default of every function below and none of
+// those files changed.
+const CASH = { businessId: BUSINESS, apiKey: API_KEY };
+
+/**
+ * The INVOICE-BASIS business — used only by examples/invoice-basis/.
+ *
+ * VAT accounting basis is a property of the BUSINESS, fixed when it is
+ * registered and not editable afterwards (`Businesses.VatBasis`). It is NOT a
+ * field you can put on a request, so there is no way to demonstrate both bases
+ * against one business: the invoice-basis examples need a second business
+ * registered on that basis, with its own `http`-scoped API key.
+ *
+ * Falls back to the main credentials when the two IB vars are unset — right for
+ * anyone whose only business already IS on invoice basis. If that business
+ * turns out to be on cash basis the scripts detect it and stop with an
+ * explanation, rather than printing cash-basis output under an invoice-basis
+ * heading (see `expectAtIssue`).
+ */
+export const IB = {
+  businessId: process.env.VSMS_CONNECT_IB_BUSINESS_ID || BUSINESS,
+  apiKey: process.env.VSMS_CONNECT_IB_API_KEY || API_KEY,
+  /** False when falling back to the main credentials rather than a dedicated pair. */
+  dedicated: Boolean(
+    process.env.VSMS_CONNECT_IB_BUSINESS_ID &&
+      process.env.VSMS_CONNECT_IB_API_KEY,
+  ),
+};
+
+const fiscaliseUrl = (client) =>
+  `${BASE}/businesses/${client.businessId}/fiscalise`;
+const taxRatesUrl = (client) =>
+  `${BASE}/businesses/${client.businessId}/tax-rates`;
 // `/stores`, not `/locations` — the admin Locations CRUD owns that path.
-const LOCATIONS = `${BASE}/businesses/${BUSINESS}/stores`;
-const HEADERS = {
+const storesUrl = (client) => `${BASE}/businesses/${client.businessId}/stores`;
+
+const headersFor = (client) => ({
   // No JWT and no Idempotency-Key header — the server derives an idempotency
   // key from invoiceNumber + a body hash, so a byte-identical retry replays.
-  Authorization: `ApiKey ${API_KEY}`,
+  Authorization: `ApiKey ${client.apiKey}`,
   "Content-Type": "application/json",
   // Correct for any API client, and load-bearing behind a tunnel: ngrok's free
   // tier answers GETs that do not ask for JSON with an HTML browser-warning
@@ -32,12 +66,12 @@ const HEADERS = {
   // 23-get-invoice, reading back declared stores) fails with
   // NON_JSON_RESPONSE while writes look perfectly healthy.
   Accept: "application/json",
-};
+});
 
-async function call(method, url, body) {
+async function call(method, url, body, client = CASH) {
   const res = await fetch(url, {
     method,
-    headers: HEADERS,
+    headers: headersFor(client),
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(60_000),
   });
@@ -74,20 +108,27 @@ async function call(method, url, body) {
   return { status: res.status, headers: res.headers, envelope, payload };
 }
 
-export const fiscalise = (body) => call("POST", FISCALISE, body);
-export const trigger = (invoiceId) =>
-  call("POST", `${FISCALISE}/${invoiceId}/trigger`);
+export const fiscalise = (body, client = CASH) =>
+  call("POST", fiscaliseUrl(client), body, client);
+export const trigger = (invoiceId, client = CASH) =>
+  call(
+    "POST",
+    `${fiscaliseUrl(client)}/${invoiceId}/trigger`,
+    undefined,
+    client,
+  );
 // Cancel a fiscalised payment. Pass a string to target it by SDC
 // fiscalInvoiceNumber (back-compat), or a body object to target it by your own
 // invoiceNumber (+ optional transactionType / externalPaymentId) — TAXCORE-639.
-export const cancelDoc = (target) =>
+export const cancelDoc = (target, client = CASH) =>
   call(
     "POST",
-    `${FISCALISE}/cancel`,
+    `${fiscaliseUrl(client)}/cancel`,
     typeof target === "string" ? { fiscalInvoiceNumber: target } : target,
+    client,
   );
-export const getStatus = (invoiceId) =>
-  call("GET", `${FISCALISE}/${invoiceId}`);
+export const getStatus = (invoiceId, client = CASH) =>
+  call("GET", `${fiscaliseUrl(client)}/${invoiceId}`, undefined, client);
 
 /**
  * Declare the caller's tax table (the push equivalent of "list all tax rates").
@@ -97,8 +138,8 @@ export const getStatus = (invoiceId) =>
  * for re-review. Nothing is auto-confirmed. Payload:
  * `{ proposed, driftDetected, alreadyMapped }`.
  */
-export const declareTaxRates = (taxRates) =>
-  call("POST", TAX_RATES, { taxRates });
+export const declareTaxRates = (taxRates, client = CASH) =>
+  call("POST", taxRatesUrl(client), { taxRates }, client);
 
 /**
  * Declare your own store codes (the push equivalent of "list all locations").
@@ -108,7 +149,8 @@ export const declareTaxRates = (taxRates) =>
  * auto-accepted, and re-declaring never overwrites a row the admin owns.
  * Payload: `{ declared, proposed: string[], alreadyKnown: string[] }`.
  */
-export const declareStores = (stores) => call("POST", LOCATIONS, { stores });
+export const declareStores = (stores, client = CASH) =>
+  call("POST", storesUrl(client), { stores }, client);
 
 /**
  * Read back what your declared (or invoice-discovered) store codes currently
@@ -119,7 +161,8 @@ export const declareStores = (stores) => call("POST", LOCATIONS, { stores });
  * HTTP-sourced rows only: a location an admin created by hand has no store code
  * of yours, so it is not addressable through this surface and is not listed.
  */
-export const listStores = () => call("GET", LOCATIONS);
+export const listStores = (client = CASH) =>
+  call("GET", storesUrl(client), undefined, client);
 
 const IN_FLIGHT = new Set([
   "pending",
@@ -177,14 +220,18 @@ const BLOCK_REASON_FIXES = {
     "the document this one refers to has not been signed yet. Fiscalise the source first.",
 };
 
-export async function pollUntilTerminal(invoiceId, timeoutMs = 120_000) {
+export async function pollUntilTerminal(
+  invoiceId,
+  timeoutMs = 120_000,
+  client = CASH,
+) {
   const deadline = Date.now() + timeoutMs;
   // Consecutive polls seeing "imported, eligible, never dispatched". A couple
   // of grace polls absorb the gap between a trigger returning and the job row
   // appearing; beyond that it is a standing state, not a slow one.
   let idlePolls = 0;
   for (;;) {
-    const { envelope, payload } = await getStatus(invoiceId);
+    const { envelope, payload } = await getStatus(invoiceId, client);
     if (envelope.error) throw new Error(`status GET failed: ${envelope.code}`);
     if (
       payload.paymentResults.length > 0 &&
@@ -275,7 +322,7 @@ export async function pollUntilTerminal(invoiceId, timeoutMs = 120_000) {
  * Resolve a POST result to a terminal payload, converging a 202 via polling.
  * On an error envelope, print it (with any validationErrors) and exit non-zero.
  */
-export async function expectFiscalised(result, label) {
+export async function expectFiscalised(result, label, client = CASH) {
   if (result.envelope.error) {
     console.error(
       `✗ ${label}: HTTP ${result.status} ${result.envelope.code}: ${result.envelope.message}`,
@@ -286,9 +333,54 @@ export async function expectFiscalised(result, label) {
   }
   let payload = result.payload;
   if (result.status === 202 && payload.invoiceId) {
-    payload = await pollUntilTerminal(payload.invoiceId);
+    payload = await pollUntilTerminal(payload.invoiceId, 120_000, client);
   }
   return payload;
+}
+
+/**
+ * `expectFiscalised` for a PAYMENT-FREE sale — the invoice-basis opener.
+ *
+ * A SALE with no `payments` at all is accepted only for a business whose
+ * declared VAT basis is `invoice`; a cash-basis business gets it back as
+ * `422` with `payments: payments must be a non-empty array`. That rejection is
+ * therefore an exact probe for the basis, which matters because NOTHING on
+ * this API reports it: there is no endpoint that tells an integrator which
+ * basis their business is on, so the alternative to detecting it here is
+ * printing cash-basis output under an invoice-basis heading.
+ *
+ * Every script in this folder opens with a payment-free sale, so the check
+ * costs no extra request.
+ */
+export async function expectAtIssue(result, label, client = IB) {
+  const wrongBasis =
+    result.status === 422 &&
+    (result.envelope?.validationErrors ?? []).some(
+      (v) => v.field === "payments",
+    );
+  if (wrongBasis) {
+    failWith(
+      `✗ ${label}: this business is on CASH basis, so a sale with no payments is rejected.\n` +
+        `\n` +
+        `  The examples in examples/invoice-basis/ need a business whose VAT accounting\n` +
+        `  basis is "invoice". That is fixed when the business is REGISTERED and cannot\n` +
+        `  be changed afterwards, so you need a separate business registered on invoice\n` +
+        `  basis, plus its own http-scoped API key, and then:\n` +
+        `\n` +
+        `      VSMS_CONNECT_IB_BUSINESS_ID=<that business's uuid>\n` +
+        `      VSMS_CONNECT_IB_API_KEY=<that business's http key>\n` +
+        `\n` +
+        `  in your .env. ${
+          IB.dedicated
+            ? "Those two vars ARE set — so the business they point at is on cash basis."
+            : "They are not set, so these scripts fell back to VSMS_CONNECT_BUSINESS_ID."
+        }\n` +
+        `\n` +
+        `  Everything in examples/ (01-27) is the cash-basis set and runs against the\n` +
+        `  business you already have.`,
+    );
+  }
+  return expectFiscalised(result, label, client);
 }
 
 // fiscalTimestamp is a BIGINT serialised as a STRING — coerce before date math.
