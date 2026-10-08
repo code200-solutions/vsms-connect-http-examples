@@ -64,4 +64,5 @@ printReceipt(
     "12. Proforma Refund",
   ),
   "Proforma Refund",
+  invoiceNumber,
 );

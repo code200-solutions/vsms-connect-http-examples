@@ -422,13 +422,29 @@ export function requireFiscal(payload, label) {
 /** epoch-ms → ISO-8601 (the form the server wants for referent/source timestamps). */
 export const msToIso = (ms) => new Date(ms).toISOString();
 
-/** Print the fiscal outcome of a payload — one line per payment + the receipt. */
-export function printReceipt(payload, label) {
+/**
+ * Print the fiscal outcome of a payload — one line per payment + the receipt.
+ *
+ * `sourceInvoiceNumber` is the ONLY the refund/copy call sites need to pass —
+ * the sale's invoiceNumber, as a display fallback. It mirrors the server's own
+ * persistence rule for a refund's invoiceNumber (`ExternalReference:
+ * externalReference ?? sourceInvoice.invoiceNumber` in DbInvoiceRepository):
+ * the wire body always sends the sale's invoiceNumber for a REFUND (required —
+ * that's how the source is resolved, TAXCORE-639), and the response always
+ * echoes it back, but showing the same fallback here rather than printing a
+ * blank field is the safer habit for an integrator's own display code.
+ *
+ * Note: a REFUND sent with `refundNumber` (TAXCORE-944, example 28) still echoes
+ * the SALE's invoiceNumber here — `refundNumber` is the refund's own number on
+ * the fiscal receipt, not a response field.
+ */
+export function printReceipt(payload, label, sourceInvoiceNumber) {
   // `invoiceId` is the server-issued GUID — the handle for GET /:invoiceId,
   // POST /:invoiceId/trigger, and examples/status-poll.mjs. It is NOT the
   // caller's invoiceNumber, and it differs from each invoicePaymentId below.
+  const invoiceNumber = payload.invoiceNumber ?? sourceInvoiceNumber ?? "—";
   console.log(
-    `✓ ${label} — invoiceNumber ${payload.invoiceNumber} · invoiceId ${payload.invoiceId ?? "—"}`,
+    `✓ ${label} — invoiceNumber ${invoiceNumber} · invoiceId ${payload.invoiceId ?? "—"}`,
   );
   for (const p of payload.paymentResults) {
     let line = `  payment ${p.invoicePaymentId}: ${p.status} — ${p.fiscalInvoiceNumber ?? "—"}`;

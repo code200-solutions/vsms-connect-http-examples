@@ -1,12 +1,13 @@
 # Invoice-basis examples
 
-The scripts in [`examples/`](../) are the **cash-basis** set. These four are the **invoice-basis** set — the same connector, the same endpoints, a business that accounts for VAT differently.
+The scripts in [`examples/`](../) are the **cash-basis** set. These five are the **invoice-basis** set — the same connector, the same endpoints, a business that accounts for VAT differently.
 
 ```bash
 yarn case ib-01      # → examples/invoice-basis/ib-01-at-issue-sale.mjs
 yarn case ib-02      # refund an at-issue sale
 yarn case ib-03      # void (cancel) one
 yarn case ib-04      # edit one — increase, decrease, and a no-op
+yarn case ib-05      # refund with the refund's own number (refundNumber)
 ```
 
 ## What "basis" means here
@@ -47,12 +48,13 @@ Leave both unset and these scripts fall back to `VSMS_CONNECT_BUSINESS_ID` — r
 
 ## The four cases
 
-| Script                                               | Shows                                                                                                                                                                                               |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`ib-01-at-issue-sale.mjs`](ib-01-at-issue-sale.mjs) | A credit sale with **no `payments` at all** fiscalises anyway, as one document for the whole total, `paymentType: OTHER`. The at-issue declaration is the feature; everything else follows from it. |
-| [`ib-02-refund.mjs`](ib-02-refund.mjs)               | A refund reuses the sale's `invoiceNumber` and names nothing else — no `referentDocumentNumber`, no `sourceExternalPaymentId`. A REFUND still requires `payments`: money really is going back.      |
-| [`ib-03-void.mjs`](ib-03-void.mjs)                   | Cancel by `invoiceNumber` alone, with the caveat that this only holds **before** the invoice is edited.                                                                                             |
-| [`ib-04-edit.mjs`](ib-04-edit.mjs)                   | Re-pushing with a changed total declares the **difference**: a chained sale for an increase, a partial refund for a decrease, nothing for an unchanged body.                                        |
+| Script                                                       | Shows                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`ib-01-at-issue-sale.mjs`](ib-01-at-issue-sale.mjs)         | A credit sale with **no `payments` at all** fiscalises anyway, as one document for the whole total, `paymentType: OTHER`. The at-issue declaration is the feature; everything else follows from it.                                                  |
+| [`ib-02-refund.mjs`](ib-02-refund.mjs)                       | A refund reuses the sale's `invoiceNumber` and names nothing else — no `referentDocumentNumber`, no `sourceExternalPaymentId`. A REFUND still requires `payments`: money really is going back.                                                       |
+| [`ib-03-void.mjs`](ib-03-void.mjs)                           | Cancel by `invoiceNumber` alone, with the caveat that this only holds **before** the invoice is edited.                                                                                                                                              |
+| [`ib-04-edit.mjs`](ib-04-edit.mjs)                           | Re-pushing with a changed total declares the **difference**: a chained sale for an increase, a partial refund for a decrease, nothing for an unchanged body.                                                                                         |
+| [`ib-05-refund-own-number.mjs`](ib-05-refund-own-number.mjs) | `refundNumber` gives the refund its own number on the receipt; `invoiceNumber` still finds the sale. Works identically on cash basis (example 28). Not available on the partial refund ib-04 declares for you — that is a system-generated document. |
 
 ## Editing, in one paragraph
 

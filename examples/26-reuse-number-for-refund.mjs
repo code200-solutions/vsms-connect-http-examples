@@ -14,6 +14,7 @@
 //   (TAXCORE-639) — you do NOT need to hold the SDC fiscalInvoiceNumber. A sale
 //   and its refund deliberately share one invoiceNumber (the "evolving-invoice"
 //   model); they are distinguished by transactionType, not by the number.
+//   To give the refund its OWN number on the receipt, see 28-refund-own-number.
 //
 // RELATION TO 03
 //   This is the idempotency-framed view of 03-normal-refund: the focus here is
@@ -76,7 +77,7 @@ const refund = await expectFiscalised(
   }),
   "refund",
 );
-printReceipt(refund, "Refund");
+printReceipt(refund, "Refund", invoiceNumber);
 
 const distinct = refund.invoiceId !== sale.invoiceId;
 console.log("\nSame invoiceNumber, two documents:");

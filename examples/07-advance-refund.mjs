@@ -81,4 +81,5 @@ printReceipt(
     "07. Advance Refund",
   ),
   "Advance Refund (deposit 1)",
+  invoiceNumber,
 );

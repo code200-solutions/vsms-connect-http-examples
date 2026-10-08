@@ -65,10 +65,14 @@ export function trigger(invoiceId) {
   );
 }
 
-export function cancel(fiscalInvoiceNumber) {
-  return request("POST", `${FISCALISE}/cancel?sync_timeout_ms=25000`, {
-    fiscalInvoiceNumber,
-  });
+// `target` is a fiscalInvoiceNumber string, or an object selecting by the
+// caller's own identifiers, e.g. { invoiceNumber, transactionType: "REFUND" }.
+export function cancel(target) {
+  return request(
+    "POST",
+    `${FISCALISE}/cancel?sync_timeout_ms=25000`,
+    typeof target === "string" ? { fiscalInvoiceNumber: target } : target,
+  );
 }
 
 const IN_FLIGHT = new Set([
@@ -184,6 +188,7 @@ function buildLine(spec) {
  *   - taxCode ("VAT15"|"VAT0") | taxLabel (raw V-SDC label) — single-line default
  *   - locationId          → per-request location selector on a fresh sale
  *   - invoiceType / transactionType / reference / referentDocumentNumber
+ *   - refundNumber        → the REFUND's own reference number (REFUND-only)
  *   - unitPrice / quantity / paymentType
  */
 export function makeInvoice(opts = {}) {
@@ -294,6 +299,7 @@ export function makeInvoice(opts = {}) {
   )
     invoice.storeCode = STORE_CODE;
   if (opts.reference) invoice.reference = opts.reference;
+  if (opts.refundNumber) invoice.refundNumber = opts.refundNumber;
   if (opts.referentDocumentNumber)
     invoice.referentDocumentNumber = opts.referentDocumentNumber;
   if (opts.buyer || opts.buyerEmail) {

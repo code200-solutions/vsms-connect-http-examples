@@ -358,6 +358,48 @@ test("extra: proforma → NORMAL conversion via reference", async () => {
   assert.ok(firstFiscal(payload)?.number, "converted sale did not fiscalise");
 });
 
+test("extra: a refund carries its OWN refundNumber; invoiceNumber still finds the sale", async () => {
+  const sale = await ensureFiscalised(await fiscalise(makeInvoice()));
+  const saleNumber = sale.invoiceNumber;
+  const refundNumber = uniqueInvoiceNumber("E2E-RFND");
+  const refund = await ensureFiscalised(
+    await fiscalise(
+      makeInvoice({
+        invoiceNumber: saleNumber,
+        transactionType: "REFUND",
+        refundNumber,
+      }),
+    ),
+  );
+  assert.ok(firstFiscal(refund)?.number, "refund did not fiscalise");
+  assert.notEqual(refund.invoiceId, sale.invoiceId);
+  // The response still echoes the invoiceNumber that was sent (the sale's).
+  assert.equal(refund.invoiceNumber, saleNumber);
+});
+
+test("extra: a refund with refundNumber can be cancelled by its own refundNumber", async () => {
+  const sale = await ensureFiscalised(await fiscalise(makeInvoice()));
+  const refundNumber = uniqueInvoiceNumber("E2E-RFND");
+  await ensureFiscalised(
+    await fiscalise(
+      makeInvoice({
+        invoiceNumber: sale.invoiceNumber,
+        transactionType: "REFUND",
+        refundNumber,
+      }),
+    ),
+  );
+  const result = await cancel({
+    invoiceNumber: refundNumber,
+    transactionType: "REFUND",
+  });
+  assert.ok(
+    !result.envelope.error,
+    `cancel by refundNumber failed: HTTP ${result.status} ${result.envelope.message}`,
+  );
+  assert.ok(result.payload.cancellationPaymentId);
+});
+
 test("extra: cancellation issues a counter-document", async () => {
   const payload = await ensureFiscalised(await fiscalise(makeInvoice()));
   const fiscal = firstFiscal(payload);
@@ -425,6 +467,24 @@ test("negative: refund for an unknown invoiceNumber → 404 INVOICE_NOT_FOUND", 
   );
   assert.equal(result.status, 404);
   assert.match(errorHaystack(result.envelope), /INVOICE_NOT_FOUND/);
+});
+
+test("negative: refundNumber on a SALE → 422 REFUND_NUMBER_REFUND_ONLY", async () => {
+  const result = await fiscalise(makeInvoice({ refundNumber: "E2E-RFND-X" }));
+  assert.equal(result.status, 422);
+  assert.match(errorHaystack(result.envelope), /REFUND_NUMBER_REFUND_ONLY/);
+});
+
+test("negative: refundNumber over 60 characters → REFUND_NUMBER_TOO_LONG", async () => {
+  const result = await fiscalise(
+    makeInvoice({
+      invoiceNumber: uniqueInvoiceNumber("E2E-NO-SOURCE"),
+      transactionType: "REFUND",
+      refundNumber: "x".repeat(61),
+    }),
+  );
+  assert.equal(result.status, 422);
+  assert.match(errorHaystack(result.envelope), /REFUND_NUMBER_TOO_LONG/);
 });
 
 test("negative: body locationId outside the business → 422 LOCATION_NOT_FOUND", async () => {

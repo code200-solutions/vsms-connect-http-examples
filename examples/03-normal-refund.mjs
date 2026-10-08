@@ -63,4 +63,5 @@ printReceipt(
     "03. Normal Refund",
   ),
   "Normal Refund",
+  invoiceNumber,
 );

@@ -100,7 +100,11 @@ async function reportEdit(result, originalInvoiceId, label) {
 
   console.log(`   NEW document: invoiceId ${invoiceId}`);
   console.log(`   (the original stays ${originalInvoiceId}, untouched)`);
-  return printReceipt(await pollUntilTerminal(invoiceId, 120_000, IB), label);
+  return printReceipt(
+    await pollUntilTerminal(invoiceId, 120_000, IB),
+    label,
+    invoiceNumber,
+  );
 }
 
 // ── (a) the at-issue sale — 1150 VUV, no payments (see ib-01) ───────────────

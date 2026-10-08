@@ -56,4 +56,5 @@ printReceipt(
     "19. Refund to a different tender",
   ),
   "Refund settled to CARD",
+  invoiceNumber,
 );

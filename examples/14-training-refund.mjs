@@ -57,4 +57,5 @@ printReceipt(
     "14. Training Refund",
   ),
   "Training Refund",
+  invoiceNumber,
 );

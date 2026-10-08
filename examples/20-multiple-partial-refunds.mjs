@@ -65,6 +65,7 @@ printReceipt(
     "20a. First partial refund",
   ),
   "First partial refund (Item A)",
+  invoiceNumber,
 );
 
 // (c) second partial refund — Item B. A distinct body (different line/amount),
@@ -75,4 +76,5 @@ printReceipt(
     "20b. Second partial refund",
   ),
   "Second partial refund (Item B)",
+  invoiceNumber,
 );

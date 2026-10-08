@@ -64,4 +64,5 @@ printReceipt(
     "04. Normal Refund with buyer identification",
   ),
   "Normal Refund with buyer",
+  invoiceNumber,
 );

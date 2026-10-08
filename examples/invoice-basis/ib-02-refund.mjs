@@ -101,6 +101,7 @@ printReceipt(
     IB,
   ),
   "Refund",
+  invoiceNumber,
 );
 
 console.log(

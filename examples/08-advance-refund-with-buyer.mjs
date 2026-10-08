@@ -77,4 +77,5 @@ printReceipt(
     "08. Advance Refund with buyer identification",
   ),
   "Advance Refund with buyer (deposit 1)",
+  invoiceNumber,
 );

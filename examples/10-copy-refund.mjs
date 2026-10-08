@@ -78,4 +78,5 @@ printReceipt(
     "10. Copy Refund",
   ),
   "Copy Refund",
+  invoiceNumber,
 );

@@ -65,4 +65,5 @@ printReceipt(
     "18. Item-level partial refund",
   ),
   "Item-level partial refund",
+  invoiceNumber,
 );
