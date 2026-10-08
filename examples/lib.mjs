@@ -553,3 +553,130 @@ export const BUYER = {
   name: "Acme Trading Ltd",
   email: "accounts@acme-trading.test",
 };
+
+// ── Validation examples (examples/validation/) ──────────────────────────────
+
+/**
+ * A fully valid NORMAL sale — every validation example starts from this and
+ * breaks exactly ONE field, so the field under test is the only thing that can
+ * explain the outcome.
+ *
+ * NOT a training invoice, so it appears on Home's Invoices tab with its block
+ * reasons. Cases that sign (VL-20) create a real fiscal record — run these
+ * against a test environment.
+ */
+export function validSaleBody(prefix = "VL") {
+  const lineItems = [vatLine("Validation example item", 1000, 1)];
+  return {
+    invoiceNumber: uniqueNumber(prefix),
+    invoiceType: "NORMAL",
+    transactionType: "SALE",
+    storeCode: STORE_CODE,
+    invoiceDate: new Date().toISOString(),
+    currencyCode: "VUV",
+    cashierId: "example-pos",
+    lineItems,
+    payments: [
+      {
+        amount: totalsOf(lineItems).totalAmount,
+        paymentType: "CASH",
+        paymentDate: new Date().toISOString(),
+      },
+    ],
+    ...totalsOf(lineItems),
+  };
+}
+
+/** Print the per-payment outcome of a fiscalise/status payload. */
+export function showPayments(payload) {
+  console.log(`\ninvoiceId ${payload.invoiceId}`);
+  for (const p of payload.paymentResults ?? []) {
+    console.log(`  payment ${p.invoicePaymentId}`);
+    console.log(`    status                    ${p.status}`);
+    console.log(`    eligibleForFiscalisation  ${p.eligibleForFiscalisation}`);
+    console.log(
+      `    fiscalisationBlockReasons ${JSON.stringify(p.fiscalisationBlockReasons ?? [])}`,
+    );
+    console.log(
+      `    fiscalInvoiceNumber       ${p.fiscalInvoiceNumber ?? "—"}`,
+    );
+    for (const d of p.fiscalisationBlockDetails ?? [])
+      console.log(`    → ${d.code}: ${d.message}`);
+    if (p.errorMessage)
+      console.log(`    errorMessage              ${p.errorMessage}`);
+  }
+}
+
+/**
+ * Expect the invoice to be ACCEPTED (201/202) and then BLOCKED at ingest with
+ * `reason`. A blocked invoice is a success envelope — an error envelope here
+ * is the wrong answer. Needs `VSDC_VALIDATION_MODE=enforce` on the backend.
+ */
+export async function expectBlockedOnIngest(result, label, reason) {
+  console.log(`→ ${label}`);
+  if (result.envelope.error) {
+    console.error(
+      `\n✗ HTTP ${result.status} ${result.envelope.code}: ${result.envelope.message}`,
+    );
+    for (const v of result.envelope.validationErrors ?? [])
+      console.error(`    ${v.field}: ${v.message}`);
+    console.error(
+      result.status >= 500
+        ? "\n  A SERVER error, not a validation answer. If it names a truncated\n" +
+            "  column, the database is missing a migration (120 widens\n" +
+            "  Invoices.CashierId, 121 widens InvoiceLineItems.Description)."
+        : "\n  The connector rejected this at the wire, so it never reached the\n" +
+            "  ingest check. Nothing was persisted.",
+    );
+    return failWith("");
+  }
+  const payload = result.payload;
+  console.log(`HTTP ${result.status}`);
+  showPayments(payload);
+  const results = payload.paymentResults ?? [];
+  const blocked =
+    results.length > 0 &&
+    results.every((p) => (p.fiscalisationBlockReasons ?? []).includes(reason));
+  if (blocked) {
+    console.log(
+      `\n✓ BLOCKED on ${reason}. Check the app: the invoice shows as Blocked,\n` +
+        "  is NOT offered by Resync, and IS offered by Dismiss Blocked Invoices.",
+    );
+    return payload;
+  }
+  console.error(
+    `\n✗ NOT blocked on ${reason}. Either the backend is not running with\n` +
+      "  VSDC_VALIDATION_MODE=enforce (the default is report, which only logs),\n" +
+      "  or it predates TAXCORE-976.",
+  );
+  return failWith("");
+}
+
+/**
+ * Expect the connector's OWN request validation to reject the body (HTTP
+ * 400/422) with a message containing `fragment`. These caps mirror the V-SDC
+ * limits, so over-length values from this connector never become blocked
+ * invoices: they are refused before anything is persisted.
+ */
+export function expectRejectedAtWire(result, label, fragment) {
+  console.log(`→ ${label}`);
+  const errors = result.envelope.validationErrors ?? [];
+  const text = [
+    result.envelope.message ?? "",
+    ...errors.map((v) => `${v.field}: ${v.message}`),
+  ].join(" | ");
+  console.log(`HTTP ${result.status} ${result.envelope.code ?? ""}`);
+  for (const v of errors) console.log(`    ${v.field}: ${v.message}`);
+  if (result.envelope.error && text.includes(fragment)) {
+    console.log(
+      `\n✓ REJECTED at the wire (${fragment}). Nothing was persisted.`,
+    );
+    return;
+  }
+  console.error(
+    `\n✗ Expected a ${fragment} rejection, got HTTP ${result.status}${
+      result.envelope.error ? "" : " (accepted)"
+    }.`,
+  );
+  failWith("");
+}
