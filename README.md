@@ -119,7 +119,7 @@ yarn case ib-04          # → examples/invoice-basis/ib-04-edit.mjs
 yarn case --list         # every case
 ```
 
-A bare number always means the cash-basis set; the invoice-basis scripts are selected by name (`ib-01` … `ib-04`). Any script can also be run directly — `node --env-file=.env examples/01-normal-sale.mjs` — from the repo root, since `--env-file` resolves from the working directory.
+A bare number always means the cash-basis set; the invoice-basis scripts are selected by name (`ib-01` … `ib-06`). Any script can also be run directly — `node --env-file=.env examples/01-normal-sale.mjs` — from the repo root, since `--env-file` resolves from the working directory.
 
 Read [`examples/01-normal-sale.mjs`](examples/01-normal-sale.mjs) and [`examples/lib.mjs`](examples/lib.mjs) first: together they are the smallest complete integration, and they document every wire gotcha (the nested response envelope, BIGINT-string timestamps, server-side idempotency) in comments.
 

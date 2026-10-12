@@ -8,6 +8,7 @@ yarn case ib-02      # refund an at-issue sale
 yarn case ib-03      # void (cancel) one
 yarn case ib-04      # edit one — increase, decrease, and a no-op
 yarn case ib-05      # refund with the refund's own number (refundNumber)
+yarn case ib-06      # an unmapped tax code on a payment-free sale blocks, not dispatches
 ```
 
 ## What "basis" means here
@@ -48,13 +49,14 @@ Leave both unset and these scripts fall back to `VSMS_CONNECT_BUSINESS_ID` — r
 
 ## The four cases
 
-| Script                                                       | Shows                                                                                                                                                                                                                                                |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`ib-01-at-issue-sale.mjs`](ib-01-at-issue-sale.mjs)         | A credit sale with **no `payments` at all** fiscalises anyway, as one document for the whole total, `paymentType: OTHER`. The at-issue declaration is the feature; everything else follows from it.                                                  |
-| [`ib-02-refund.mjs`](ib-02-refund.mjs)                       | A refund reuses the sale's `invoiceNumber` and names nothing else — no `referentDocumentNumber`, no `sourceExternalPaymentId`. A REFUND still requires `payments`: money really is going back.                                                       |
-| [`ib-03-void.mjs`](ib-03-void.mjs)                           | Cancel by `invoiceNumber` alone, with the caveat that this only holds **before** the invoice is edited.                                                                                                                                              |
-| [`ib-04-edit.mjs`](ib-04-edit.mjs)                           | Re-pushing with a changed total declares the **difference**: a chained sale for an increase, a partial refund for a decrease, nothing for an unchanged body.                                                                                         |
-| [`ib-05-refund-own-number.mjs`](ib-05-refund-own-number.mjs) | `refundNumber` gives the refund its own number on the receipt; `invoiceNumber` still finds the sale. Works identically on cash basis (example 28). Not available on the partial refund ib-04 declares for you — that is a system-generated document. |
+| Script                                                       | Shows                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`ib-01-at-issue-sale.mjs`](ib-01-at-issue-sale.mjs)         | A credit sale with **no `payments` at all** fiscalises anyway, as one document for the whole total, `paymentType: OTHER`. The at-issue declaration is the feature; everything else follows from it.                                                                                                                             |
+| [`ib-02-refund.mjs`](ib-02-refund.mjs)                       | A refund reuses the sale's `invoiceNumber` and names nothing else — no `referentDocumentNumber`, no `sourceExternalPaymentId`. A REFUND still requires `payments`: money really is going back.                                                                                                                                  |
+| [`ib-03-void.mjs`](ib-03-void.mjs)                           | Cancel by `invoiceNumber` alone, with the caveat that this only holds **before** the invoice is edited.                                                                                                                                                                                                                         |
+| [`ib-04-edit.mjs`](ib-04-edit.mjs)                           | Re-pushing with a changed total declares the **difference**: a chained sale for an increase, a partial refund for a decrease, nothing for an unchanged body.                                                                                                                                                                    |
+| [`ib-05-refund-own-number.mjs`](ib-05-refund-own-number.mjs) | `refundNumber` gives the refund its own number on the receipt; `invoiceNumber` still finds the sale. Works identically on cash basis (example 28). Not available on the partial refund ib-04 declares for you — that is a system-generated document.                                                                            |
+| [`ib-06-unmapped-tax-code.mjs`](ib-06-unmapped-tax-code.mjs) | A payment-free sale on a `taxCode` that was **declared but never mapped** is accepted and **blocked** (`201`, `MISSING_TAX_MAPPING`), never dispatched. It stays blocked, and signs under the same `invoiceNumber` once an admin maps the code and re-syncs. Invoice basis only: this is the one place the block could be lost. |
 
 ## Editing, in one paragraph
 
@@ -65,6 +67,6 @@ A signed V-SDC document is immutable, so an invoice that changes after it was de
 - **`sourceExternalPaymentId` stops working.** The at-issue event is synthesised by the server, so it carries `externalPaymentId: null`. Naming one matches nothing. If your cash-basis integration always sends it, that line has to go.
 - **An edited invoice cannot be cancelled by `invoiceNumber` alone.** It now has several fiscalised documents under that number. For a decrease, `transactionType` splits them; for an increase, both are SALEs with null `externalPaymentId`, so you need the `fiscalInvoiceNumber`. A cancel reverses **one** document, not the chain.
 - **`ADVANCE` is not honoured.** It is pinned to `NORMAL`. There is no deposit chain to build, and re-pushing your original `ADVANCE` body is fine — the type is simply rewritten again.
-- **A blocked invoice blocks the same way.** An unmapped `taxCode` or `storeCode` still returns 201 with `fiscalisationBlockReasons`, and an admin's re-sync still releases it. Basis changes what is declared, not what blocks.
+- **A blocked invoice blocks the same way.** An unmapped `taxCode` or `storeCode` still returns 201 with `fiscalisationBlockReasons`, and an admin's re-sync still releases it. Basis changes what is declared, not what blocks. That includes a sale with no `payments` at all — `yarn case ib-06` proves it.
 
 Run these from the repo root — `--env-file` resolves from the working directory.
